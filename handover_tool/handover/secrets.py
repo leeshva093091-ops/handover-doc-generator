@@ -15,8 +15,10 @@ from .models import SensitiveFinding
 
 # 값에 이런 토큰이 들어가면 실제 비밀이 아니라 자리표시자일 확률이 높음 → 신뢰도 낮춤.
 _PLACEHOLDER_HINTS = (
-    "changeme", "your_", "yourpassword", "example", "placeholder", "dummy",
-    "xxxx", "<", ">", "...", "todo", "test123", "sample",
+    "changeme", "change_me", "your_", "yourpassword", "example", "placeholder",
+    "dummy", "xxxx", "<", ">", "...", "todo", "test123", "sample", "fixme",
+    "foo", "bar", "abc123", "password123", "secret123", "redacted", "n/a",
+    "${", "{{", "env.", "process.env",
 )
 
 # 줄 단위로 검사할 패턴: (종류, 정규식, 기본 신뢰도)
@@ -38,6 +40,18 @@ _LINE_PATTERNS: list[tuple[str, re.Pattern, str]] = [
     # Bearer 토큰
     ("Bearer 토큰",
      re.compile(r"[Bb]earer\s+([A-Za-z0-9\-_\.]{12,})"), "중간"),
+    # JWT (eyJ... 형태)
+    ("JWT 토큰",
+     re.compile(r"\b(eyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]+)"), "높음"),
+    # Slack 토큰
+    ("Slack 토큰",
+     re.compile(r"\b(xox[baprs]-[A-Za-z0-9\-]{10,})"), "높음"),
+    # GitHub 토큰
+    ("GitHub 토큰",
+     re.compile(r"\b(gh[pousr]_[A-Za-z0-9]{20,})"), "높음"),
+    # Google API 키
+    ("Google API 키",
+     re.compile(r"\b(AIza[0-9A-Za-z\-_]{20,})"), "높음"),
 ]
 
 # 여러 줄에 걸친 개인키 블록.

@@ -122,20 +122,84 @@ def parse_dependencies(root: Path) -> tuple[list[DependencyGroup], list[str]]:
         except json.JSONDecodeError:
             notes.append("package.json 파싱 실패 — 형식을 직접 확인하세요.")
 
-    # 그 외 의존성 파일은 '존재'만 알리고 상세 파싱은 추후 단계로 미룬다.
-    for name, hint in (
-        ("pyproject.toml", "Python 프로젝트 메타/의존성"),
-        ("Pipfile", "pipenv 의존성"),
-        ("pom.xml", "Maven 의존성"),
-        ("build.gradle", "Gradle 의존성"),
-        ("go.mod", "Go 모듈 의존성"),
-        ("Gemfile", "Ruby 의존성"),
-        ("Cargo.toml", "Rust 의존성"),
+    # 그 외 의존성 파일은 경량 파서로 항목을 뽑아낸다 (실패하면 존재만 표기).
+    for name, parser, hint in (
+        ("pyproject.toml", _parse_pyproject, "Python 의존성"),
+        ("pom.xml", _parse_pom, "Maven 의존성"),
+        ("build.gradle", _parse_gradle, "Gradle 의존성"),
+        ("go.mod", _parse_gomod, "Go 모듈 의존성"),
+        ("Gemfile", _parse_gemfile, "Ruby 의존성"),
+        ("Cargo.toml", _parse_cargo, "Rust 의존성"),
+        ("Pipfile", _parse_cargo, "pipenv 의존성"),  # Pipfile도 [packages] 테이블 형식
     ):
-        if (root / name).exists():
-            groups.append(DependencyGroup(source=name, items=[f"({hint} — 상세는 파일 확인)"]))
+        f = root / name
+        if f.exists():
+            try:
+                items = parser(read_text(f))
+            except Exception:  # noqa: BLE001 - 파싱 실패해도 존재 표기는 유지
+                items = []
+            groups.append(DependencyGroup(
+                source=name, items=items or [f"({hint} — 상세는 파일 확인)"]))
 
     return groups, notes
+
+
+# ---- 의존성 파일 경량 파서 (표준 라이브러리만, tomllib 없이 정규식 기반) ----
+def _parse_pyproject(text: str) -> list[str]:
+    items: list[str] = []
+    # [project] dependencies = ["a>=1", "b"]
+    m = re.search(r"dependencies\s*=\s*\[(.*?)\]", text, re.DOTALL)
+    if m:
+        items += re.findall(r"['\"]([^'\"]+)['\"]", m.group(1))
+    # [tool.poetry.dependencies] 테이블
+    m = re.search(r"\[tool\.poetry\.dependencies\](.*?)(?:\n\[|\Z)", text, re.DOTALL)
+    if m:
+        for line in m.group(1).splitlines():
+            key = line.split("=")[0].strip()
+            if key and key.lower() != "python" and not key.startswith("#"):
+                items.append(key)
+    return list(dict.fromkeys(items))
+
+
+def _parse_pom(text: str) -> list[str]:
+    out = []
+    for grp, art in re.findall(r"<dependency>.*?<groupId>(.*?)</groupId>.*?"
+                               r"<artifactId>(.*?)</artifactId>", text, re.DOTALL):
+        out.append(f"{grp.strip()}:{art.strip()}")
+    return out
+
+
+def _parse_gradle(text: str) -> list[str]:
+    # implementation 'group:name:version' 또는 implementation("...")
+    return list(dict.fromkeys(re.findall(
+        r"(?:implementation|api|compile|testImplementation|runtimeOnly)\s*\(?\s*['\"]([^'\"]+)['\"]",
+        text)))
+
+
+def _parse_gomod(text: str) -> list[str]:
+    out = []
+    for line in text.splitlines():
+        m = re.match(r"\s*(?:require\s+)?([\w./\-]+)\s+v[\w.\-]+", line)
+        if m and m.group(1) not in ("require", "module", "go"):
+            out.append(m.group(1))
+    return list(dict.fromkeys(out))
+
+
+def _parse_gemfile(text: str) -> list[str]:
+    return list(dict.fromkeys(re.findall(r"^\s*gem\s+['\"]([^'\"]+)['\"]", text, re.MULTILINE)))
+
+
+def _parse_cargo(text: str) -> list[str]:
+    # [dependencies] / [packages] 테이블의 키
+    m = re.search(r"\[(?:dependencies|packages)\](.*?)(?:\n\[|\Z)", text, re.DOTALL)
+    if not m:
+        return []
+    out = []
+    for line in m.group(1).splitlines():
+        key = line.split("=")[0].strip().strip('"')
+        if key and not key.startswith("#"):
+            out.append(key)
+    return out
 
 
 def find_run_entries(root: Path, files: list[Path]) -> list[RunEntry]:

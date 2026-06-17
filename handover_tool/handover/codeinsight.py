@@ -31,8 +31,42 @@ _PATTERNS = {
         "func": re.compile(r"(?:function\s+(\w+)|(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s*)?\()"),
         "entry": re.compile(r"\b(?:addEventListener\(|app\.listen\(|main\(\))"),
     },
+    "Go": {
+        "import": re.compile(r"^\s*(?:[\w.]+\s+)?\"([\w][\w./\-]*)\"\s*$|import\s+\"([^\"]+)\""),
+        "class": re.compile(r"^\s*type\s+(\w+)\s+(?:struct|interface)"),
+        "func": re.compile(r"^\s*func\s+(?:\([^)]*\)\s*)?(\w+)\s*\("),
+        "entry": re.compile(r"^\s*func\s+main\s*\("),
+    },
+    "Ruby": {
+        "import": re.compile(r"^\s*require(?:_relative)?\s+['\"]([^'\"]+)['\"]"),
+        "class": re.compile(r"^\s*(?:class|module)\s+(\w+)"),
+        "func": re.compile(r"^\s*def\s+(\w+)"),
+        "entry": re.compile(r"__FILE__\s*==\s*\$(?:0|PROGRAM_NAME)"),
+    },
+    "C#": {
+        "import": re.compile(r"^\s*using\s+([\w.]+)\s*;"),
+        "class": re.compile(r"\b(?:class|interface|struct|record)\s+(\w+)"),
+        "func": re.compile(r"(?:public|private|protected|internal|static)[\w<>\[\],\s]+?\s+(\w+)\s*\("),
+        "entry": re.compile(r"static\s+(?:async\s+Task\s+|void\s+)?Main\s*\("),
+    },
+    "Kotlin": {
+        "import": re.compile(r"^\s*import\s+([\w.]+)"),
+        "class": re.compile(r"\b(?:class|object|interface)\s+(\w+)"),
+        "func": re.compile(r"^\s*fun\s+(?:[\w<>.]+\.)?(\w+)\s*\("),
+        "entry": re.compile(r"\bfun\s+main\s*\("),
+    },
 }
 _PATTERNS["TypeScript"] = _PATTERNS["JavaScript"]
+
+# API 라우트/엔드포인트 (언어 무관). "이 코드가 어떤 API를 제공하는가"의 단서.
+_ROUTE_PATTERNS = [
+    # Flask/FastAPI: @app.route("/x"), @router.get("/x")
+    re.compile(r"@\w+\.(?:route|get|post|put|delete|patch)\(\s*['\"]([^'\"]+)['\"]"),
+    # Spring: @GetMapping("/x"), @RequestMapping(value="/x")
+    re.compile(r"@(?:Get|Post|Put|Delete|Patch|Request)Mapping\(\s*(?:value\s*=\s*)?['\"]([^'\"]+)['\"]"),
+    # Express/Node: app.get('/x'), router.post("/x")
+    re.compile(r"\b(?:app|router)\.(?:get|post|put|delete|patch|use)\(\s*['\"]([^'\"]+)['\"]"),
+]
 
 
 def _first_group(match: re.Match) -> str:
@@ -103,6 +137,12 @@ def analyze_code(text: str, language: str) -> CodeInsight:
         insight.classes = list(dict.fromkeys(classes))
         insight.functions = list(dict.fromkeys(functions))
 
+    # API 라우트/엔드포인트 (언어 무관)
+    routes: list[str] = []
+    for pat in _ROUTE_PATTERNS:
+        routes += pat.findall(text)
+    insight.routes = list(dict.fromkeys(routes))
+
     insight.summary = _build_summary(insight)
     return insight
 
@@ -121,6 +161,10 @@ def _build_summary(c: CodeInsight) -> list[str]:
         s.append("구성: " + ", ".join(structure) + f" (코드 {c.loc}줄)")
     else:
         s.append(f"코드 {c.loc}줄")
+    if c.routes:
+        preview = ", ".join(c.routes[:6])
+        more = " 등" if len(c.routes) > 6 else ""
+        s.append(f"API 엔드포인트 {len(c.routes)}개 제공 (예: {preview}{more}) → 웹 서버/API로 보입니다.")
     if c.has_entrypoint:
         s.append("실행 진입점(main 등)이 있어 단독 실행되는 코드로 보입니다.")
     else:

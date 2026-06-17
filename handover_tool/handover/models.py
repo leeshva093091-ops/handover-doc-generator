@@ -54,6 +54,7 @@ class CodeInsight:
     imports: list[str] = field(default_factory=list)
     classes: list[str] = field(default_factory=list)
     functions: list[str] = field(default_factory=list)
+    routes: list[str] = field(default_factory=list)  # API 라우트/엔드포인트(추정)
     has_entrypoint: bool = False  # main/실행 진입점 존재 여부
     summary: list[str] = field(default_factory=list)  # 유추한 동작 요약(휴리스틱)
 

@@ -230,6 +230,8 @@ def _render_file_markdown(meta, diff_md=None, generated_on=None) -> str:
         b.append(f"- 임포트/의존: {', '.join(c.imports) if c.imports else _NA}")
         b.append(f"- 클래스: {', '.join(c.classes) if c.classes else _NA}")
         b.append(f"- 함수/메서드: {', '.join(c.functions) if c.functions else _NA}")
+        if c.routes:
+            b.append(f"- API 엔드포인트: {', '.join(c.routes)}")
         b.append(f"- 실행 진입점: {'있음 (단독 실행 가능 추정)' if c.has_entrypoint else '없음 (모듈/라이브러리 추정)'}")
     else:
         b.append(f"- {_NA} (코드 파일이 아니거나 내용 분석을 생략함 — 바이너리/문서 파일)")

@@ -104,7 +104,54 @@ class AnalyzeSampleTest(unittest.TestCase):
         self.assertIn("DEMO_SECRET_TOKEN", self.meta.env_vars)
 
 
+class DependencyParseTest(unittest.TestCase):
+    def setUp(self):
+        from handover import analyzer
+        self.a = analyzer
+
+    def test_pyproject(self):
+        items = self.a._parse_pyproject('[project]\ndependencies = ["flask>=3", "requests"]\n')
+        self.assertIn("flask>=3", items)
+        self.assertIn("requests", items)
+
+    def test_gomod(self):
+        items = self.a._parse_gomod("module x\ngo 1.21\nrequire (\n  github.com/gin-gonic/gin v1.9.1\n)\n")
+        self.assertIn("github.com/gin-gonic/gin", items)
+
+    def test_pom(self):
+        xml = "<dependency><groupId>org.springframework</groupId><artifactId>spring-core</artifactId></dependency>"
+        self.assertIn("org.springframework:spring-core", self.a._parse_pom(xml))
+
+    def test_gradle(self):
+        self.assertIn("com.google.guava:guava:32.0",
+                      self.a._parse_gradle("implementation 'com.google.guava:guava:32.0'"))
+
+
+class CodeInsightLangTest(unittest.TestCase):
+    def test_go(self):
+        from handover import codeinsight
+        code = ('package main\nimport "net/http"\n'
+                'type Server struct{}\nfunc main(){}\nfunc handle(){}\n')
+        c = codeinsight.analyze_code(code, "Go")
+        self.assertIn("Server", c.classes)
+        self.assertIn("main", c.functions)
+        self.assertTrue(c.has_entrypoint)
+
+    def test_routes_flask(self):
+        from handover import codeinsight
+        code = '@app.route("/health")\ndef h(): pass\n@app.get("/users")\ndef u(): pass\n'
+        c = codeinsight.analyze_code(code, "Python")
+        self.assertIn("/health", c.routes)
+        self.assertIn("/users", c.routes)
+
+
 class SecretsUnitTest(unittest.TestCase):
+    def test_jwt_and_github_token(self):
+        f = secrets.scan_text("x.py", 'T = "eyJhbGciOiJIUzI1.eyJzdWIiOiIxMjM0.abcDEF"')
+        self.assertTrue(any("JWT" in s.kind for s in f))
+        g = secrets.scan_text("x.py", 'tok = "ghp_0123456789abcdefABCDEFghij0123456789"')
+        self.assertTrue(any("GitHub" in s.kind for s in g))
+
     def test_placeholder_lowers_confidence(self):
         findings = secrets.scan_text("x.py", 'password = "changeme"')
         self.assertTrue(findings)
