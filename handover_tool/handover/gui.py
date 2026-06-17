@@ -164,11 +164,15 @@ class HandoverApp:
             style.configure(nb, background=bg, borderwidth=0, tabmargins=(2, 4, 2, 0))
         for tab in ("TNotebook.Tab", "Closable.TNotebook.Tab"):
             style.configure(tab, background="#e7eaef", foreground=sub,
-                            padding=(14, 7), borderwidth=0)
-            # 선택 시 탭이 커지지 않도록 expand를 0으로 고정 (활성/비활성 크기 일관화)
-            style.map(tab, background=[("selected", card)],
-                      foreground=[("selected", ink)],
-                      expand=[("selected", [0, 0, 0, 0])])
+                            padding=(16, 8), borderwidth=0)
+            # 선택/비선택 모두 동일 padding·expand로 강제 → 크기 고정, 차이는 배경색만.
+            style.map(
+                tab,
+                background=[("selected", card), ("active", "#dfe4ea")],
+                foreground=[("selected", ink)],
+                expand=[("selected", "0 0 0 0"), ("!selected", "0 0 0 0")],
+                padding=[("selected", (16, 8)), ("!selected", (16, 8))],
+            )
         # 표
         style.configure("Treeview", background="white", fieldbackground="white",
                         borderwidth=1, relief="solid", rowheight=24, font=("Segoe UI", 9))

@@ -62,11 +62,24 @@ class AnalyzeSampleTest(unittest.TestCase):
         doc = render_markdown(self.meta)
         self.assertIn("### 준비사항(Prerequisites)", doc)
 
+    def test_title_is_name_and_date(self):
+        doc = render_markdown(self.meta, generated_on="2026-06-17")
+        self.assertTrue(doc.startswith("# demo_project"))
+        self.assertIn("작성일 2026-06-17", doc)
+        self.assertNotIn("인수인계 문서 —", doc)
+
     def test_render_has_fixed_sections(self):
         doc = render_markdown(self.meta)
-        for heading in ("## 1. 개요", "## 2. 설치", "## 3. 실행",
-                        "## 4. 환경", "## 5. 주의사항", "## 6. 디렉터리 구조"):
+        for heading in ("## 1. 개요", "## 2. 실행 준비", "## 3. 환경 설정",
+                        "## 4. 실행 방법", "## 5. 동작 확인", "## 6. 주의사항",
+                        "## 7. 디렉터리 구조"):
             self.assertIn(heading, doc)
+
+    def test_tristate_markers(self):
+        doc = render_markdown(self.meta)
+        # 동작 확인은 항상 직접 작성 필요 표식이 있어야 한다
+        self.assertIn("✍", doc)
+        self.assertIn("➖", doc)  # 해당 없음 표식도 존재
 
     def test_detects_sensitive(self):
         kinds = [f.kind for f in self.meta.sensitive]
@@ -180,11 +193,11 @@ class SingleFileTest(unittest.TestCase):
         self.assertTrue(meta.sensitive)  # 하드코딩 비밀값 감지
 
     def test_file_template_differs_from_project(self):
-        # 단일 파일은 '파일 인계 문서' 양식, 코드 분석 섹션을 포함해야 한다.
+        # 단일 파일은 코드 분석 섹션을 포함하고, 프로젝트 전용 섹션은 없어야 한다.
         doc, meta = generate_document(str(SAMPLE / "app.py"))
-        self.assertIn("# 파일 인계 문서", doc)
+        self.assertTrue(doc.startswith("# app.py"))      # 제목 = 파일명
         self.assertIn("## 2. 코드 분석", doc)
-        self.assertNotIn("## 6. 디렉터리 구조", doc)  # 프로젝트 전용 섹션은 없음
+        self.assertNotIn("디렉터리 구조", doc)             # 프로젝트 전용 섹션 없음
 
     def test_code_insight_python(self):
         _, meta = generate_document(str(SAMPLE / "app.py"))
@@ -263,7 +276,7 @@ class SnapshotDiffTest(unittest.TestCase):
     def test_render_with_diff_adds_section(self):
         d = snapshot.diff({"env_vars": []}, {"env_vars": ["NEW_VAR"]})
         doc = render_markdown(self.meta, diff_md=snapshot.render_diff_md(d))
-        self.assertIn("## 7. 이전 분석 대비 변경 사항", doc)
+        self.assertIn("## 변경 사항 (이전 분석 대비)", doc)
         self.assertIn("NEW_VAR", doc)
 
 
