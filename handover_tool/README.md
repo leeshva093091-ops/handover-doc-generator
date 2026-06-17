@@ -71,10 +71,14 @@ python -m PyInstaller --onefile --name handover --clean --noconfirm handover_cli
 
 배포 후 사용 (대상 PC, Python 불필요):
 ```bat
+handover.exe                                  :: 더블클릭/무인자 → 웹 화면 자동 실행 + 브라우저 열림
 handover.exe .\my-project -o handover.md     :: 로컬 폴더 분석
 handover.exe --serve                          :: 웹 화면 (http://127.0.0.1:8765)
 handover.exe https://github.com/owner/repo.git :: Git URL (단, 대상 PC에 git 필요)
 ```
+
+> **가장 간단한 사용법**: `handover.exe`를 **더블클릭**하면 웹 화면이 뜨고 브라우저가 자동으로
+> 열린다. 콘솔 창을 닫으면 종료된다. (브라우저 자동 열기를 끄려면 `--no-browser`)
 
 > - **로컬 폴더 분석·웹 모드**는 exe 단독으로 완전히 동작한다.
 > - **Git URL** 입력만은 실행 PC에 `git`이 설치돼 있어야 한다 (exe가 git을 포함하지 않음).

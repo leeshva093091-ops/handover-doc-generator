@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import html
 import urllib.parse
+import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import source
@@ -122,13 +123,24 @@ class _Handler(BaseHTTPRequestHandler):
         return
 
 
-def serve(host: str = "127.0.0.1", port: int = 8765) -> None:
-    """웹 서버를 구동한다 (Ctrl+C로 종료)."""
+def serve(host: str = "127.0.0.1", port: int = 8765, open_browser: bool = False) -> None:
+    """웹 서버를 구동한다 (Ctrl+C로 종료).
+
+    open_browser=True면 기본 브라우저로 화면을 자동으로 연다 (exe 더블클릭 시 사용).
+    """
     httpd = ThreadingHTTPServer((host, port), _Handler)
-    print(f"인수인계 도구 웹 서버 실행 중 → http://{host}:{port}  (종료: Ctrl+C)")
+    url = f"http://{host}:{port}"
+    print(f"인수인계 도구 웹 서버 실행 중 → {url}")
+    print("브라우저에서 위 주소로 접속하세요. (이 창을 닫거나 Ctrl+C를 누르면 종료됩니다.)")
     if host not in ("127.0.0.1", "localhost"):
         print("주의: 로컬호스트 외부에 바인드되었습니다. 이 서버는 로컬 파일 접근/저장소 클론이 "
               "가능하므로 신뢰된 망에서만 사용하세요.")
+    if open_browser:
+        # 소켓은 이미 listen 상태이므로, 브라우저 요청은 serve_forever가 받아 처리한다.
+        try:
+            webbrowser.open(url)
+        except OSError:
+            pass  # 브라우저 자동 열기는 부가 기능 — 실패해도 서버는 계속 돈다.
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
