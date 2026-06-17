@@ -466,6 +466,9 @@ class HandoverApp:
             "doc": doc, "name": meta.name, "widget": doc_widget,
             "sub": sub, "tab_doc": tab_doc, "edit_btn": edit_btn,
             "todo_label": todo_label, "editing": False, "edited": set(),
+            # 초기화용: 원본 '직접 작성 필요' 줄을 줄번호별로 보관
+            "original_todo": {i: ln for i, ln in enumerate(doc.split("\n"))
+                              if "직접 작성" in ln},
         }
         self._update_todo_label(tab_id)
         self._update_results_view()
@@ -873,6 +876,23 @@ class HandoverApp:
 
     _TODO_MARK = "✍ **직접 작성 필요**"
 
+    @staticmethod
+    def _section_title(src_lines: list, src_i: int) -> str:
+        """해당 줄 위쪽의 가장 가까운 '## N. 제목' 섹션 제목을 돌려준다."""
+        for i in range(min(src_i, len(src_lines) - 1), -1, -1):
+            s = src_lines[i].strip()
+            if s.startswith("## "):
+                return s[3:].strip()
+        return ""
+
+    @staticmethod
+    def _field_label(prefix: str) -> str:
+        """접두에서 항목명(굵게 **..** 또는 `..`)을 뽑는다."""
+        for sep in ("**", "`"):
+            if prefix.count(sep) >= 2:
+                return prefix.split(sep)[1].strip()
+        return ""
+
     def _edit_single_line(self, tab_id: str, rec: dict, src_i: int) -> None:
         """원본 Markdown의 한 줄만 팝업으로 편집한다.
 
@@ -884,26 +904,25 @@ class HandoverApp:
             return
         current = src_lines[src_i]
 
+        section = self._section_title(src_lines, src_i)
         if self._TODO_MARK in current:
             prefix, after = current.split(self._TODO_MARK, 1)
             hint = after.lstrip(" —").strip() or "내용을 입력하세요"
-            lbl = prefix.strip()
-            for ch in ("-", "*", "`"):
-                lbl = lbl.replace(ch, "")
-            lbl = lbl.strip().rstrip(":= ").strip() or "이 항목"
+            field = self._field_label(prefix)
             prefilled, is_placeholder_line = "", True
         else:
-            prefix, hint, lbl = "", "", current.strip() or "이 줄"
+            prefix, hint, field = "", "", ""
             prefilled, is_placeholder_line = current, False
 
         top = tk.Toplevel(self.root)
         top.title("직접 작성")
         top.transient(self.root)
         top.configure(bg=_C_BG, padx=16, pady=14)
-        ttk.Label(top, text=f"[{lbl}] 작성", font=self.f_h3).pack(anchor="w")
-        if prefix.strip():
-            ttk.Label(top, text=f"미리보기 접두: {prefix.strip()}", foreground="#888",
-                      font=("Segoe UI", 8)).pack(anchor="w", pady=(2, 0))
+        # 위: 이 줄이 속한 섹션(숫자.제목) / 아래: 작성 항목
+        ttk.Label(top, text=f"📄 {section}" if section else "직접 작성",
+                  font=self.f_h3, foreground=_C_ACCENT).pack(anchor="w")
+        ttk.Label(top, text=(f"작성 항목: {field}" if field else "이 줄의 내용을 작성하세요"),
+                  foreground="#666").pack(anchor="w", pady=(2, 8))
 
         ph_color, normal_color = "#9aa1ab", "#1b1b1b"
         entry = tk.Entry(top, width=92, font=self.f_body, fg=normal_color,
@@ -944,25 +963,47 @@ class HandoverApp:
         entry.focus_set()
         entry.icursor(0)
 
+        def _rerender_to(src_index: int, msg: str):
+            self._render_doc(rec["widget"], rec["doc"])
+            self._update_todo_label(tab_id)
+            disp = getattr(rec["widget"], "_src_to_disp", {}).get(src_index)
+            if disp:
+                rec["widget"].see(f"{disp}.0")
+            self.status.config(text=msg)
+
+        has_original = src_i in rec.get("original_todo", {})
+
+        def reset_to_todo():
+            """이 줄을 수정 전 '직접 작성 필요' 상태(노란 강조)로 되돌린다."""
+            orig = rec.get("original_todo", {}).get(src_i)
+            if orig is not None:
+                src_lines[src_i] = orig
+                rec["doc"] = "\n".join(src_lines)
+                rec.get("edited", set()).discard(src_i)
+                _rerender_to(src_i, "‘직접 작성 필요’ 상태로 되돌렸습니다.")
+            top.destroy()
+
         def apply(_e=None):
             value = real_value()
             if value:
                 src_lines[src_i] = f"{prefix}{value}" if is_placeholder_line else value
                 rec["doc"] = "\n".join(src_lines)
                 rec.setdefault("edited", set()).add(src_i)  # 직접 입력 표시(파랑) 유지
-                self._render_doc(rec["widget"], rec["doc"])
-                self._update_todo_label(tab_id)
-                # 수정한 줄로 스크롤 유지
-                disp = getattr(rec["widget"], "_src_to_disp", {}).get(src_i)
-                if disp:
-                    rec["widget"].see(f"{disp}.0")
-                self.status.config(text="해당 줄을 작성했습니다. ‘이 결과 저장’으로 내보내세요.")
-            top.destroy()
+                _rerender_to(src_i, "해당 줄을 작성했습니다. ‘이 결과 저장’으로 내보내세요.")
+                top.destroy()
+            elif has_original:
+                # 빈 값으로 적용하면 원래 '직접 작성 필요' 상태로 되돌린다.
+                reset_to_todo()
+            else:
+                top.destroy()
 
         btns = ttk.Frame(top)
         btns.pack(fill="x")
         ttk.Button(btns, text="적용", style="Accent.TButton", command=apply).pack(side="right")
         ttk.Button(btns, text="취소", command=top.destroy).pack(side="right", padx=(0, 6))
+        if has_original:
+            ttk.Button(btns, text="↩ 초기화(직접작성 필요로)",
+                       command=reset_to_todo).pack(side="left")
         entry.bind("<Return>", apply)
         top.bind("<Escape>", lambda _e: top.destroy())
         top.grab_set()
