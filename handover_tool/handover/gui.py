@@ -779,13 +779,11 @@ class HandoverApp:
         w.tag_configure("code", font=self.f_mono, background="#f1f3f5", lmargin1=14, lmargin2=14)
         w.tag_configure("quote", font=self.f_body, foreground="#777", lmargin1=10, lmargin2=10)
         w.tag_configure("bullet", font=self.f_body, lmargin1=18, lmargin2=30)
-        # 직접 작성/확인 필요 강조 (노란 배경) — 클릭하면 그 줄만 인라인 편집
+        # 직접 작성/확인 필요 강조 (노란 배경). 편집은 줄 우측의 ✏ 버튼으로 한다.
         w.tag_configure("todo", background="#fff3bf", foreground="#7a5d00")
-        w.tag_bind("todo", "<Button-1>", self._on_todo_click)
-        w.tag_bind("todo", "<Enter>", lambda _e, ww=w: ww.config(cursor="hand2"))
-        w.tag_bind("todo", "<Leave>", lambda _e, ww=w: ww.config(cursor=""))
         # 클릭 이동 시 해당 줄 강조
         w.tag_configure("jump", background="#ffe08a")
+        w._todo_btns = []  # type: ignore[attr-defined]  # 줄 우측 편집 버튼들
         return w
 
     def _render_doc(self, w: tk.Text, md: str) -> None:
@@ -795,6 +793,10 @@ class HandoverApp:
         강조 텍스트 클릭 시 해당 원본 줄만 편집할 수 있게 한다.
         """
         w.config(state="normal")
+        # 이전 편집 버튼 정리
+        for b in getattr(w, "_todo_btns", []):
+            b.destroy()
+        w._todo_btns = []  # type: ignore[attr-defined]
         for t in ("h1", "h2", "h3", "code", "quote", "bullet", "todo", "jump"):
             w.tag_remove(t, "1.0", "end")
         w.delete("1.0", "end")
@@ -822,9 +824,18 @@ class HandoverApp:
             else:
                 w.insert("end", line + "\n")
             disp_to_src[disp] = src_i
+            # 직접 작성 필요 줄이면 우측에 ✏ 편집 버튼을 박아 넣는다.
+            if "직접 작성" in line:
+                btn = tk.Button(w, text="✏ 편집",
+                                command=lambda s=src_i: self._edit_line_at(w, s),
+                                font=("Segoe UI", 8, "bold"), fg=_C_ACCENT, bg="#fff0b8",
+                                activebackground="#ffe08a", activeforeground=_C_ACCENT,
+                                relief="flat", bd=0, padx=6, pady=0, cursor="hand2")
+                w.window_create(f"{disp}.end", window=btn, padx=6)
+                w._todo_btns.append(btn)
             disp += 1
         w._disp_to_src = disp_to_src  # type: ignore[attr-defined]
-        # 확인 필요/직접 작성 문구 강조
+        # 직접 작성/확인 필요 문구 강조
         for marker in ("확인 필요", "직접 작성"):
             start = "1.0"
             while True:
@@ -836,18 +847,11 @@ class HandoverApp:
                 start = end
         w.configure(state="disabled")
 
-    def _on_todo_click(self, event) -> None:
-        """노란 강조(직접작성) 텍스트 클릭 → 그 줄만 인라인 편집."""
-        w = event.widget
-        # 편집 모드(전체 수정)일 땐 그대로 두기
-        rec_pair = next(((tid, r) for tid, r in self._results.items()
-                         if r["widget"] is w), (None, None))
-        tab_id, rec = rec_pair
-        if not rec or rec.get("editing"):
-            return
-        disp_line = int(w.index(f"@{event.x},{event.y}").split(".")[0])
-        src_i = getattr(w, "_disp_to_src", {}).get(disp_line)
-        if src_i is None:
+    def _edit_line_at(self, w: tk.Text, src_i: int) -> None:
+        """줄 우측 ✏ 버튼 클릭 → 그 원본 줄만 편집."""
+        tab_id, rec = next(((tid, r) for tid, r in self._results.items()
+                            if r["widget"] is w), (None, None))
+        if rec is None or rec.get("editing"):
             return
         self._edit_single_line(tab_id, rec, src_i)
 
