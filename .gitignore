@@ -9,3 +9,7 @@ __pycache__/
 handover_tool/build/
 handover_tool/dist/
 handover_tool/*.spec
+
+# 로컬 자료 (저장소 공유 대상 아님)
+교육자료/
+테스트샘플/
