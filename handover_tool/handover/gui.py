@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import threading
 import tkinter as tk
@@ -589,10 +590,12 @@ class HandoverApp:
         tab_summary = ttk.Frame(sub, padding=10)
         tab_files = ttk.Frame(sub, padding=10)
         tab_doc = ttk.Frame(sub, padding=0)
+        tab_user = ttk.Frame(sub, padding=10)
         sens_mark = f" ⚠{n_sens}" if n_sens else ""
         sub.add(tab_summary, text=f"  요약{sens_mark}  ")
         sub.add(tab_files, text=f"  파일 ({len(meta.files)})  ")
         sub.add(tab_doc, text="  문서  ")
+        sub.add(tab_user, text="  ✍ 사용자 작성  ")
         self._build_summary(tab_summary, meta)
         self._build_files(tab_files, meta)
 
@@ -628,10 +631,12 @@ class HandoverApp:
             "doc": doc, "name": meta.name, "meta": meta, "widget": doc_widget,
             "sub": sub, "tab_doc": tab_doc, "edit_btn": edit_btn,
             "todo_label": todo_label, "editing": False, "edited": set(),
+            "user_entries": {}, "user_forms": [], "user_seq": 0,
             # 초기화용: 원본 '직접 작성 필요' 줄을 줄번호별로 보관
             "original_todo": {i: ln for i, ln in enumerate(doc.split("\n"))
                               if "직접 작성" in ln},
         }
+        self._build_user_tab(tab_user, tab_id)
         self._update_todo_label(tab_id)
         self._update_results_view()
         self.results_nb.select(outer)
@@ -710,6 +715,146 @@ class HandoverApp:
         rec = self._results.get(tab_id)
         if rec:
             self._save_doc(rec["doc"], rec["name"])
+
+    # ---------- 사용자 작성 탭 ----------
+    _USER_HEADING = "## 📝 작성자 추가 내용"
+
+    def _build_user_tab(self, parent: ttk.Frame, tab_id: str) -> None:
+        bar = ttk.Frame(parent)
+        bar.pack(fill="x", pady=(0, 6))
+        ttk.Label(bar, foreground="#666",
+                  text="작성자·제목·내용을 입력하고 '추가'하면 문서 상단에 반영됩니다.").pack(side="left")
+        ttk.Button(bar, text="＋ 입력폼 추가",
+                   command=lambda: self._add_user_form(tab_id)).pack(side="right")
+
+        # 스크롤 가능한 폼 영역
+        canvas = tk.Canvas(parent, bg=_C_BG, highlightthickness=0)
+        sb = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
+        inner = ttk.Frame(canvas)
+        inner.bind("<Configure>", lambda _e: canvas.configure(scrollregion=canvas.bbox("all")))
+        win = canvas.create_window((0, 0), window=inner, anchor="nw")
+        canvas.bind("<Configure>", lambda e: canvas.itemconfigure(win, width=e.width))
+        canvas.configure(yscrollcommand=sb.set)
+        sb.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True)
+
+        self._results[tab_id]["user_forms_host"] = inner
+        self._add_user_form(tab_id)  # 초기 폼 1개
+
+    def _add_user_form(self, tab_id: str) -> None:
+        rec = self._results.get(tab_id)
+        if not rec:
+            return
+        host = rec["user_forms_host"]
+        rec["user_seq"] += 1
+        frame = ttk.LabelFrame(host, text=f" 입력 #{rec['user_seq']} ", padding=8)
+        frame.pack(fill="x", pady=(0, 8))
+        author = tk.StringVar()
+        title = tk.StringVar()
+        row = ttk.Frame(frame)
+        row.pack(fill="x")
+        ttk.Label(row, text="작성자").pack(side="left")
+        a_entry = ttk.Entry(row, textvariable=author, width=16)
+        a_entry.pack(side="left", padx=(4, 12))
+        ttk.Label(row, text="제목").pack(side="left")
+        t_entry = ttk.Entry(row, textvariable=title)
+        t_entry.pack(side="left", fill="x", expand=True, padx=(4, 0))
+        ttk.Label(frame, text="내용").pack(anchor="w", pady=(6, 0))
+        content = tk.Text(frame, height=4, wrap="word", relief="solid", bd=1, font=self.f_body)
+        content.pack(fill="x")
+        btns = ttk.Frame(frame)
+        btns.pack(fill="x", pady=(6, 0))
+
+        form = {"frame": frame, "author": author, "title": title, "content": content,
+                "a_entry": a_entry, "t_entry": t_entry, "btns": btns,
+                "key": str(id(frame)), "added": False, "editing": False}
+        add_btn = ttk.Button(btns, text="추가", style="Accent.TButton",
+                             command=lambda: self._user_add(tab_id, form))
+        add_btn.pack(side="right")
+        form["add_btn"] = add_btn
+        rec["user_forms"].append(form)
+
+    def _set_form_editable(self, form: dict, editable: bool) -> None:
+        st = "normal" if editable else "readonly"
+        form["a_entry"].config(state=st)
+        form["t_entry"].config(state=st)
+        form["content"].config(state="normal" if editable else "disabled")
+
+    def _user_add(self, tab_id: str, form: dict) -> None:
+        rec = self._results.get(tab_id)
+        if not rec:
+            return
+        author = form["author"].get().strip()
+        title = form["title"].get().strip()
+        content = form["content"].get("1.0", "end-1c").strip()
+        if not (title or content):
+            messagebox.showwarning("입력 필요", "제목 또는 내용을 입력하세요.")
+            return
+        rec["user_entries"][form["key"]] = {"author": author, "title": title, "content": content}
+        form["added"] = True
+        self._set_form_editable(form, False)
+        # 추가 버튼 → 삭제 + 수정
+        form["add_btn"].destroy()
+        edit_btn = ttk.Button(form["btns"], text="수정",
+                              command=lambda: self._user_edit(tab_id, form))
+        del_btn = ttk.Button(form["btns"], text="삭제",
+                             command=lambda: self._user_delete(tab_id, form))
+        del_btn.pack(side="right")
+        edit_btn.pack(side="right", padx=(0, 6))
+        form["edit_btn"], form["del_btn"] = edit_btn, del_btn
+        self._merge_user_notes(tab_id)
+        self.status.config(text="작성 내용을 문서 상단에 추가했습니다.")
+
+    def _user_edit(self, tab_id: str, form: dict) -> None:
+        if not form["editing"]:
+            form["editing"] = True
+            self._set_form_editable(form, True)
+            form["edit_btn"].config(text="수정 완료")
+        else:
+            form["editing"] = False
+            rec = self._results.get(tab_id)
+            rec["user_entries"][form["key"]] = {
+                "author": form["author"].get().strip(),
+                "title": form["title"].get().strip(),
+                "content": form["content"].get("1.0", "end-1c").strip()}
+            self._set_form_editable(form, False)
+            form["edit_btn"].config(text="수정")
+            self._merge_user_notes(tab_id)
+            self.status.config(text="작성 내용을 수정했습니다.")
+
+    def _user_delete(self, tab_id: str, form: dict) -> None:
+        rec = self._results.get(tab_id)
+        if not rec:
+            return
+        rec["user_entries"].pop(form["key"], None)
+        if form in rec["user_forms"]:
+            rec["user_forms"].remove(form)
+        form["frame"].destroy()
+        self._merge_user_notes(tab_id)
+        self.status.config(text="작성 내용을 삭제했습니다.")
+
+    def _merge_user_notes(self, tab_id: str) -> None:
+        """사용자 작성 항목들을 문서 상단(첫 ## 섹션 앞)에 머지하고 다시 렌더한다."""
+        rec = self._results[tab_id]
+        # 기존 사용자 블록 제거 (헤딩~다음 ## 직전, 또는 끝까지)
+        base = re.sub(r"\n*" + re.escape(self._USER_HEADING) + r".*?(?=\n## |\Z)", "\n",
+                      rec["doc"], flags=re.DOTALL)
+        entries = rec["user_entries"]
+        if entries:
+            block = [self._USER_HEADING, ""]
+            for e in entries.values():
+                block.append(f"### {e['title'] or '(제목 없음)'} — {e['author'] or '익명'}")
+                block.append(e["content"] or "")
+                block.append("")
+            block_md = "\n".join(block).rstrip()
+            m = re.search(r"(?m)^## ", base)
+            if m:
+                base = base[:m.start()] + block_md + "\n\n" + base[m.start():]
+            else:
+                base = base.rstrip() + "\n\n" + block_md + "\n"
+        rec["doc"] = base
+        self._render_doc(rec["widget"], rec["doc"])
+        self._update_todo_label(tab_id)
 
     # ---------- 재분석 diff (스냅샷) ----------
     def _snapshot_menu(self, tab_id: str) -> None:
