@@ -247,17 +247,113 @@ def build_tree(root: Path, display_name: str | None = None, max_depth: int = 2) 
     return "\n".join(lines)
 
 
+# 의존성 파일 → (런타임 준비 문구, 설치 명령 힌트)
+_RUNTIME_HINTS = {
+    "requirements.txt": ("Python 런타임 설치", "pip install -r requirements.txt"),
+    "pyproject.toml": ("Python 런타임 설치", "pip install ."),
+    "Pipfile": ("Python 런타임 설치", "pipenv install"),
+    "package.json": ("Node.js 런타임 설치", "npm install"),
+    "pom.xml": ("JDK(Java) 설치", "mvn install"),
+    "build.gradle": ("JDK(Java) 설치", "gradle build"),
+    "go.mod": ("Go 설치", "go mod download"),
+    "Gemfile": ("Ruby 설치", "bundle install"),
+    "Cargo.toml": ("Rust 툴체인 설치", "cargo build"),
+}
+
+
+def derive_prerequisites(meta: ProjectMetadata) -> list[str]:
+    """분석 결과에서 '실행 전 준비사항'을 도출한다 (설치/실행 영역 고도화).
+
+    런타임·의존성 설치 명령·Docker·환경변수·포트·외부 접속정보 등 사람이 인계받아
+    바로 띄우기 위해 확인해야 할 항목을 한데 모은다. 중복은 제거하고 순서를 유지한다.
+    """
+    items: list[str] = []
+    sources = {g.source for g in meta.dependencies}
+
+    # 런타임 + 의존성 설치 명령
+    for source_name, (runtime, install_cmd) in _RUNTIME_HINTS.items():
+        if source_name in sources:
+            items.append(runtime)
+            items.append(f"의존성 설치: `{install_cmd}`  ({source_name})")
+
+    # Docker 사용 여부 (실행 방법에서 감지)
+    if any(e.kind == "Docker" for e in meta.run_entries):
+        items.append("Docker 설치 및 데몬 실행")
+
+    # 환경변수
+    if meta.env_vars:
+        items.append(f"환경변수 {len(meta.env_vars)}개 설정: " + ", ".join(meta.env_vars))
+
+    # 포트
+    if meta.ports:
+        items.append("포트 개방/충돌 확인: " + ", ".join(meta.ports))
+
+    # DB/외부 서비스 접속정보
+    if any("접속 문자열" in s.kind for s in meta.sensitive):
+        items.append("DB/외부 서비스 접속 정보 준비 (코드의 접속 문자열 확인 — 민감정보 표 참고)")
+
+    # 중복 제거(순서 유지)
+    seen: set[str] = set()
+    return [x for x in items if not (x in seen or seen.add(x))]
+
+
+def _read_if_text(path: Path) -> tuple[bool, str]:
+    """텍스트 파일이면 (True, 내용), 아니면(바이너리/과대/오류) (False, "")."""
+    try:
+        if path.stat().st_size > _MAX_SCAN_BYTES:
+            return False, ""
+        head = path.read_bytes()[:4096]
+    except OSError:
+        return False, ""
+    if b"\x00" in head:  # NUL 바이트 → 바이너리로 간주
+        return False, ""
+    return True, read_text(path)
+
+
+def analyze_file(path: Path, name: str, origin: str) -> ProjectMetadata:
+    """단일 파일을 분석한다 (자바·문서 등 개별 파일 인계용)."""
+    meta = ProjectMetadata(name=name, root=origin, files=[path.name])
+    lang = LANGUAGE_BY_EXT.get(path.suffix.lower())
+    if lang:
+        meta.languages = [lang]
+
+    is_text, text = _read_if_text(path)
+    if is_text:
+        # 내용 미리보기(앞부분) — 개요의 'README 발췌' 슬롯을 파일 미리보기로 활용
+        meta.readme_excerpt = "\n".join(text.splitlines()[:15]).strip() or None
+        meta.ports = sorted({m.group(1) for m in PORT_PATTERN.finditer(text)}, key=int)
+        meta.env_vars = sorted(secrets.find_env_vars(text))
+        meta.sensitive = secrets.scan_text(path.name, text)
+        if path.name in ENTRYPOINT_FILES:
+            meta.run_entries = [RunEntry(kind="진입점",
+                                         detail=f"{path.name} — {ENTRYPOINT_FILES[path.name]}")]
+    else:
+        meta.notes.append("바이너리/비텍스트(또는 너무 큰) 파일 — 내용 분석을 생략했습니다.")
+
+    meta.tree = path.name
+    meta.prerequisites = derive_prerequisites(meta)
+    if not meta.sensitive and is_text:
+        meta.notes.append("단일 파일 분석입니다. 전체 프로젝트 맥락은 포함되지 않습니다.")
+    return meta
+
+
 def analyze_project(
     root: Path, display_name: str | None = None, origin: str | None = None
 ) -> ProjectMetadata:
-    """프로젝트 루트를 받아 전체 메타데이터를 조립한다.
+    """경로(폴더 또는 단일 파일)를 받아 전체 메타데이터를 조립한다.
 
     display_name/origin은 표시용 값 — URL 클론 시 임시 폴더가 아니라 저장소명/URL이
     문서에 보이도록 주입한다. 생략하면 로컬 경로 기준으로 채운다.
     """
+    # 단일 파일이면 파일 전용 분석으로 분기.
+    if root.is_file():
+        return analyze_file(root, display_name or root.name, origin or str(root))
+
     files = _scan_files(root)
 
     name = display_name or root.name
+    # 분석 대상 파일 목록(상대경로, forward slash로 정규화).
+    rel_files = sorted(f.relative_to(root).as_posix() for f in files)
     readme_path, readme_excerpt = find_readme(root)
     dependencies, dep_notes = parse_dependencies(root)
     run_entries = find_run_entries(root, files)
@@ -272,11 +368,15 @@ def analyze_project(
         dependencies=dependencies,
         run_entries=run_entries,
         ports=ports,
+        files=rel_files,
         env_vars=env_vars,
         sensitive=sensitive,
         tree=build_tree(root, display_name=name),
         notes=list(dep_notes),
     )
+
+    # 준비사항은 위 항목들에서 도출 (설치/실행 영역 고도화).
+    meta.prerequisites = derive_prerequisites(meta)
 
     # 핵심 정보가 비었으면 사람이 채우도록 명시 (빈 문서로 오해하지 않게).
     if not meta.readme_excerpt:

@@ -20,7 +20,9 @@
 ```bash
 # handover_tool 디렉터리에서 실행
 python -m handover ./samples/demo_project              # 로컬 폴더 미리보기
-python -m handover ./samples/demo_project -o out.md    # 파일로 저장
+python -m handover ./src/Main.java                     # 개별 파일 분석도 가능
+python -m handover ./samples/demo_project -o out.md    # 파일로 저장 (확장자로 포맷 결정)
+python -m handover ./samples/demo_project -o out.html  # HTML로 변환 저장 (.txt도 가능)
 python -m handover https://github.com/owner/repo.git   # Git URL (임시 클론 후 분석)
 python -m handover --serve                             # 웹 화면 (기본 http://127.0.0.1:8765)
 python -m handover --serve --port 9000                 # 포트 변경
@@ -42,6 +44,9 @@ python -m handover ./proj --snapshot ./proj.snap -o handover.md   # 2회차: '7.
 > 폐쇄망 내부 GitHub(Enterprise)도 git 접근이 되면 동일하게 동작한다. git이 없으면
 > 저장소를 직접 클론한 뒤 로컬 경로로 넘기면 된다.
 
+## 분석 대상
+- **폴더**(프로젝트 전체) 또는 **개별 파일**(.java/.py/문서 등) — GUI에서 폴더·파일 선택 모두 지원
+
 ## 분석 항목
 - 주요 언어 (확장자 빈도)
 - README 발췌 → 개요
@@ -51,7 +56,12 @@ python -m handover ./proj --snapshot ./proj.snap -o handover.md   # 2회차: '7.
 - **필요 환경변수**: `os.getenv`/`os.environ`/`process.env`/`System.getenv` 참조 수집
 - **민감정보 의심**: 하드코딩된 비밀값·자격증명 접속문자열·AWS 키·Bearer 토큰·개인키 탐지
   → 값은 **마스킹**, 위치(`파일:줄`)·신뢰도(높음/중간/낮음)와 함께 '주의사항' 표로 출력
-- 디렉터리 구조 (상위 2단계)
+- 디렉터리 구조 (상위 2단계) + 분석 대상 파일 목록(확장자 분포 포함)
+
+## 내보내기 포맷
+저장 시 확장자에 따라 자동 변환된다 (GUI 저장 버튼 / CLI `-o` 공통):
+- `.md`, `.txt` — Markdown 원문(평문)
+- `.html` — 브라우저로 보기 좋은 HTML로 변환 (표준 라이브러리만으로 변환, 외부 의존성 없음)
 
 ## 테스트
 ```bash

@@ -45,8 +45,12 @@ def render_markdown(meta: ProjectMetadata, diff_md: str | None = None) -> str:
         lines.append(f"**README 발췌**: {_PLACEHOLDER}")
     lines.append("")
 
-    # 2. 설치 (의존성)
+    # 2. 설치 (준비사항 + 의존성)
     lines.append("## 2. 설치")
+    lines.append("### 준비사항(Prerequisites)")
+    lines.append(_bullet(meta.prerequisites))
+    lines.append("")
+    lines.append("### 의존성")
     if meta.dependencies:
         for group in meta.dependencies:
             lines.append(f"### {group.source}")
@@ -97,6 +101,8 @@ def render_markdown(meta: ProjectMetadata, diff_md: str | None = None) -> str:
 
     # 6. 디렉터리 구조
     lines.append("## 6. 디렉터리 구조")
+    lines.append(f"- 분석 대상 파일: 총 {len(meta.files)}개 (잡음 디렉터리 제외)")
+    lines.append("")
     lines.append("```")
     lines.append(meta.tree or _PLACEHOLDER)
     lines.append("```")

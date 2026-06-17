@@ -51,7 +51,9 @@ class ProjectMetadata:
     readme_excerpt: str | None = None
     dependencies: list[DependencyGroup] = field(default_factory=list)
     run_entries: list[RunEntry] = field(default_factory=list)
+    prerequisites: list[str] = field(default_factory=list)  # 실행 전 준비/환경 (도출값)
     ports: list[str] = field(default_factory=list)
+    files: list[str] = field(default_factory=list)  # 분석 대상 파일(상대경로, 잡음 디렉터리 제외)
     env_vars: list[str] = field(default_factory=list)  # 실행에 필요한 환경변수 이름
     sensitive: list[SensitiveFinding] = field(default_factory=list)  # 민감정보 의심 항목
     tree: str = ""

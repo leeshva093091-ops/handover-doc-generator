@@ -45,6 +45,23 @@ class AnalyzeSampleTest(unittest.TestCase):
     def test_readme_excerpt(self):
         self.assertIsNotNone(self.meta.readme_excerpt)
 
+    def test_files_listed(self):
+        self.assertIn("app.py", self.meta.files)
+        self.assertIn("config.py", self.meta.files)
+        self.assertIn("requirements.txt", self.meta.files)
+        self.assertGreaterEqual(len(self.meta.files), 4)
+
+    def test_prerequisites_derived(self):
+        prereq = " | ".join(self.meta.prerequisites)
+        self.assertIn("Python 런타임", prereq)
+        self.assertIn("pip install -r requirements.txt", prereq)
+        self.assertIn("환경변수", prereq)          # DEMO_API_KEY 등
+        self.assertIn("접속 정보", prereq)          # 접속 문자열 감지 → 준비사항
+
+    def test_prerequisites_rendered(self):
+        doc = render_markdown(self.meta)
+        self.assertIn("### 준비사항(Prerequisites)", doc)
+
     def test_render_has_fixed_sections(self):
         doc = render_markdown(self.meta)
         for heading in ("## 1. 개요", "## 2. 설치", "## 3. 실행",
@@ -150,6 +167,46 @@ class ServiceTest(unittest.TestCase):
         document, meta = generate_document(str(SAMPLE))
         self.assertIn("## 1. 개요", document)
         self.assertEqual(meta.name, "demo_project")
+
+
+class SingleFileTest(unittest.TestCase):
+    def test_analyze_single_file(self):
+        # 폴더가 아닌 개별 파일도 분석 가능해야 한다 (config.py에 가짜 비밀값 포함).
+        doc, meta = generate_document(str(SAMPLE / "config.py"))
+        self.assertEqual(meta.name, "config.py")
+        self.assertEqual(meta.files, ["config.py"])
+        self.assertIn("Python", meta.languages)
+        self.assertTrue(meta.sensitive)  # 하드코딩 비밀값 감지
+        self.assertIn("## 1. 개요", doc)
+
+    def test_single_text_file(self):
+        doc, meta = generate_document(str(SAMPLE / "README.md"))
+        self.assertEqual(meta.name, "README.md")
+        self.assertIsNotNone(meta.readme_excerpt)  # 내용 미리보기
+
+
+class ExportTest(unittest.TestCase):
+    def setUp(self):
+        from handover import export
+        self.export = export
+        self.doc, self.meta = generate_document(str(SAMPLE))
+
+    def test_html_has_structure(self):
+        out = self.export.to_html(self.doc, "테스트")
+        self.assertIn("<!doctype html>", out)
+        self.assertIn("<h1>", out)
+        self.assertIn("<h2>", out)
+        self.assertIn("<table>", out)  # 민감정보 표 → HTML 표
+        self.assertIn("<title>테스트</title>", out)
+
+    def test_html_escapes(self):
+        out = self.export.to_html("# <script>x</script>", "t")
+        self.assertNotIn("<script>x</script>", out)
+
+    def test_render_by_ext(self):
+        self.assertEqual(self.export.render(self.doc, ".md"), self.doc)
+        self.assertEqual(self.export.render(self.doc, ".txt"), self.doc)
+        self.assertIn("<html", self.export.render(self.doc, ".html"))
 
 
 class SnapshotDiffTest(unittest.TestCase):

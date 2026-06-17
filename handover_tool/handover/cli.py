@@ -14,7 +14,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from . import __version__, snapshot, source
+from . import __version__, export, snapshot, source
 from .service import generate_document
 from .template import render_markdown
 
@@ -37,8 +37,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="재분석 diff용 스냅샷(JSON) 경로. 파일이 있으면 이전 분석과 비교해 "
              "'변경 사항' 섹션을 추가하고, 실행 후 항상 최신 스냅샷으로 갱신한다.",
     )
+    parser.add_argument("--gui", action="store_true",
+                        help="네이티브 데스크톱 창(tkinter)으로 실행")
     parser.add_argument("--serve", action="store_true",
-                        help="웹 화면 모드로 실행 (인자 없이 실행해도 웹 모드로 동작)")
+                        help="웹 화면 모드로 실행")
     parser.add_argument("--host", default="127.0.0.1",
                         help="웹 서버 바인드 호스트 (기본 127.0.0.1=로컬 전용)")
     parser.add_argument("--port", type=int, default=8765, help="웹 서버 포트 (기본 8765)")
@@ -66,6 +68,12 @@ def main(argv: list[str] | None = None) -> int:
     """종료 코드를 반환한다 (0=성공, 2=입력 오류, 1=그 외 실패)."""
     _force_utf8_io()
     args = build_parser().parse_args(argv)
+
+    # 데스크톱 GUI 모드.
+    if args.gui:
+        from .gui import run
+        run()
+        return 0
 
     # 웹 화면 모드: --serve를 줬거나, 인자 없이 실행(=exe 더블클릭)한 경우.
     # 후자에서는 브라우저를 자동으로 열어 클릭 한 번으로 바로 쓸 수 있게 한다.
@@ -114,8 +122,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.output:
         out_path = Path(args.output).expanduser()
+        # 확장자가 .html이면 HTML로 변환, 그 외(.md/.txt 등)는 Markdown 원문.
+        content = export.render(document, out_path.suffix, f"{meta.name} 인수인계 문서")
         try:
-            out_path.write_text(document, encoding="utf-8")
+            out_path.write_text(content, encoding="utf-8")
         except OSError as exc:
             print(f"오류: 결과 파일을 저장하지 못했습니다 → {exc}", file=sys.stderr)
             return 1

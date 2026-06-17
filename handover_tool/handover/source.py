@@ -97,12 +97,11 @@ def _clone_with_git(url: str) -> ResolvedSource:
 
 
 def _resolve_local(source: str) -> ResolvedSource:
-    """로컬 폴더 경로를 검증해 ResolvedSource로 만든다."""
+    """로컬 경로(폴더 또는 단일 파일)를 검증해 ResolvedSource로 만든다."""
     root = Path(source).expanduser()
     if not root.exists():
         raise SourceError(f"경로가 존재하지 않습니다 → {root}")
-    if not root.is_dir():
-        raise SourceError(f"폴더가 아닙니다 (파일을 가리킴) → {root}")
+    # 폴더와 단일 파일을 모두 허용한다 (자바·문서 파일 등 개별 분석 지원).
     return ResolvedSource(
         path=root,
         name=root.name,
