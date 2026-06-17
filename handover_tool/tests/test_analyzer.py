@@ -165,6 +165,34 @@ class ServiceTest(unittest.TestCase):
         self.assertEqual(meta.name, "demo_project")
 
 
+class FixtureAndEntrypointTest(unittest.TestCase):
+    def _make(self, tmp):
+        root = Path(tmp)
+        # 루트 진입 스크립트(가드 보유) + 테스트 픽스처(env/port 포함)
+        (root / "app_gui.py").write_text(
+            'def run():\n    pass\n\nif __name__ == "__main__":\n    run()\n',
+            encoding="utf-8")
+        (root / "tests").mkdir()
+        (root / "tests" / "test_x.py").write_text(
+            'import os\nK = os.getenv("FIXTURE_ONLY_VAR")\nPORT = 9999\n', encoding="utf-8")
+        return root
+
+    def test_entrypoint_detected_by_main_guard(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            _, meta = generate_document(str(self._make(tmp)))
+            details = " ".join(e.detail for e in meta.run_entries)
+            self.assertIn("app_gui.py", details)  # 알려진 목록에 없어도 감지
+
+    def test_fixture_env_excluded(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            _, meta = generate_document(str(self._make(tmp)))
+            # tests/ 픽스처의 환경변수/포트는 런타임 요건으로 잡지 않는다
+            self.assertNotIn("FIXTURE_ONLY_VAR", meta.env_vars)
+            self.assertNotIn("9999", meta.ports)
+
+
 class SingleFileTest(unittest.TestCase):
     def test_analyze_single_file(self):
         # 폴더가 아닌 개별 파일도 분석 가능해야 한다 (config.py에 가짜 비밀값 포함).

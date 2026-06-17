@@ -102,9 +102,11 @@ def _resolve_local(source: str) -> ResolvedSource:
     if not root.exists():
         raise SourceError(f"경로가 존재하지 않습니다 → {root}")
     # 폴더와 단일 파일을 모두 허용한다 (자바·문서 파일 등 개별 분석 지원).
+    # '.'/'..' 처럼 name이 비는 경우 절대경로 기준 이름으로 보정.
+    name = root.name or root.resolve().name
     return ResolvedSource(
         path=root,
-        name=root.name,
+        name=name,
         origin=str(root),
         cleanup=lambda: None,
     )

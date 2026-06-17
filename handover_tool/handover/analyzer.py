@@ -147,6 +147,24 @@ def find_run_entries(root: Path, files: list[Path]) -> list[RunEntry]:
         if (root / name).exists():
             entries.append(RunEntry(kind="진입점", detail=f"{name} — {desc}"))
 
+    # 루트의 파이썬 진입 스크립트: `if __name__ == "__main__"` 가드를 가진 파일.
+    # (handover_gui.py, run.py 등 알려진 목록에 없는 진입점도 잡는다)
+    _main_guard = re.compile(r"if\s+__name__\s*==\s*['\"]__main__['\"]")
+    for py in sorted(root.glob("*.py")):
+        if py.name in ENTRYPOINT_FILES:
+            continue  # 위에서 이미 처리
+        try:
+            if py.stat().st_size <= _MAX_SCAN_BYTES and _main_guard.search(read_text(py)):
+                entries.append(RunEntry(kind="진입점", detail=f"{py.name} — python {py.name}"))
+        except OSError:
+            continue
+
+    # `python -m <package>` 형태: 하위 패키지에 __main__.py가 있으면.
+    for sub in sorted(root.iterdir()):
+        if (sub.is_dir() and sub.name not in IGNORED_DIRS
+                and (sub / "__main__.py").exists()):
+            entries.append(RunEntry(kind="진입점", detail=f"python -m {sub.name}"))
+
     # 셸 스크립트 (루트 우선).
     for script in sorted(root.glob("*.sh")):
         entries.append(RunEntry(kind="셸 스크립트", detail=f"{script.name} — bash {script.name}"))
@@ -183,6 +201,16 @@ SCANNABLE_EXTS = {*LANGUAGE_BY_EXT, ".env", ".yml", ".yaml", ".ini", ".cfg",
                   ".conf", ".json", ".properties", ".toml", ".xml", ".txt"}
 _MAX_SCAN_BYTES = 1_000_000  # 너무 큰 파일은 성능상 건너뜀
 
+# 테스트/샘플 등 픽스처 디렉터리 — 여기서 나온 환경변수·포트는 '앱 실행 요건'이 아니라
+# 테스트 데이터일 가능성이 높아 런타임 요건 집계에서 제외한다.
+FIXTURE_DIRS = {"test", "tests", "__tests__", "sample", "samples", "example",
+                "examples", "fixture", "fixtures", "testdata", "mock", "mocks", "demo"}
+
+
+def _is_fixture_path(relpath: str) -> bool:
+    parts = relpath.replace("\\", "/").split("/")[:-1]  # 디렉터리 부분만
+    return any(p.lower() in FIXTURE_DIRS for p in parts)
+
 
 def scan_text_files(
     root: Path, files: list[Path]
@@ -211,9 +239,12 @@ def scan_text_files(
         except ValueError:
             relpath = f.name
 
-        for match in PORT_PATTERN.finditer(text):
-            ports.add(match.group(1))
-        env_vars |= secrets.find_env_vars(text)
+        # 환경변수·포트는 런타임 요건이므로 테스트/샘플 픽스처에서는 집계하지 않는다
+        # (그곳 값은 테스트 데이터라 '앱이 필요로 하는 환경'이 아님).
+        if not _is_fixture_path(relpath):
+            for match in PORT_PATTERN.finditer(text):
+                ports.add(match.group(1))
+            env_vars |= secrets.find_env_vars(text)
         sensitive.extend(secrets.scan_text(relpath, text))
 
         lang = LANGUAGE_BY_EXT.get(f.suffix.lower())
