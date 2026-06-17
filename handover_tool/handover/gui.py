@@ -465,7 +465,7 @@ class HandoverApp:
         self._results[tab_id] = {
             "doc": doc, "name": meta.name, "widget": doc_widget,
             "sub": sub, "tab_doc": tab_doc, "edit_btn": edit_btn,
-            "todo_label": todo_label, "editing": False,
+            "todo_label": todo_label, "editing": False, "edited": set(),
         }
         self._update_todo_label(tab_id)
         self._update_results_view()
@@ -525,6 +525,7 @@ class HandoverApp:
             # 읽기 모드 복귀: 변경분 반영 + 다시 렌더
             rec["editing"] = False
             rec["doc"] = w.get("1.0", "end-1c")
+            rec["edited"] = set()  # 전체 편집은 줄 번호가 바뀔 수 있어 직접입력 표시 초기화
             w.config(bg=_C_CARD)
             self._render_doc(w, rec["doc"])
             rec["edit_btn"].config(text="✏  문서 직접 수정", fg=_C_ACCENT, bg="#eaf1ff",
@@ -781,33 +782,37 @@ class HandoverApp:
         w.tag_configure("bullet", font=self.f_body, lmargin1=18, lmargin2=30)
         # 직접 작성/확인 필요 강조 (노란 배경). 편집은 줄 우측의 ✏ 버튼으로 한다.
         w.tag_configure("todo", background="#fff3bf", foreground="#7a5d00")
+        # 사용자가 직접 입력한 줄 (옅은 파랑)
+        w.tag_configure("filled", background="#e8f0ff", foreground="#13386b")
         # 클릭 이동 시 해당 줄 강조
         w.tag_configure("jump", background="#ffe08a")
         w._todo_btns = []  # type: ignore[attr-defined]  # 줄 우측 편집 버튼들
         return w
 
     def _render_doc(self, w: tk.Text, md: str) -> None:
-        """Markdown을 서식 적용해 읽기 전용으로 표시 + 확인필요 강조.
+        """Markdown을 서식 적용해 읽기 전용으로 표시.
 
-        표시된 각 줄 ↔ 원본 Markdown 줄 인덱스 매핑(w._disp_to_src)을 남겨,
-        강조 텍스트 클릭 시 해당 원본 줄만 편집할 수 있게 한다.
+        - '직접 작성 필요' 줄: 노란 강조 + 우측 ✏ 편집 버튼
+        - 사용자가 직접 입력한 줄(rec['edited']): 옅은 파랑 + 우측 ✏ 편집 버튼(재편집)
+        표시 줄 ↔ 원본 줄 매핑(w._disp_to_src / w._src_to_disp)도 남긴다.
         """
+        edited = self._edited_set_for(w)
         w.config(state="normal")
-        # 이전 편집 버튼 정리
         for b in getattr(w, "_todo_btns", []):
             b.destroy()
         w._todo_btns = []  # type: ignore[attr-defined]
-        for t in ("h1", "h2", "h3", "code", "quote", "bullet", "todo", "jump"):
+        for t in ("h1", "h2", "h3", "code", "quote", "bullet", "todo", "filled", "jump"):
             w.tag_remove(t, "1.0", "end")
         w.delete("1.0", "end")
         disp_to_src: dict[int, int] = {}
+        src_to_disp: dict[int, int] = {}
         disp = 1
         in_code = False
         for src_i, line in enumerate(md.split("\n")):
             stripped = line.strip()
             if stripped.startswith("```"):
                 in_code = not in_code
-                continue  # 코드펜스 줄은 표시하지 않음 (표시 줄 증가 없음)
+                continue  # 코드펜스 줄은 표시하지 않음
             if in_code or stripped.startswith("|"):
                 w.insert("end", line + "\n", "code")
             elif line.startswith("### "):
@@ -824,17 +829,24 @@ class HandoverApp:
             else:
                 w.insert("end", line + "\n")
             disp_to_src[disp] = src_i
-            # 직접 작성 필요 줄이면 우측에 ✏ 편집 버튼을 박아 넣는다.
-            if "직접 작성" in line:
+            src_to_disp[src_i] = disp
+
+            has_todo = "직접 작성" in line
+            is_filled = (src_i in edited) and not has_todo
+            if is_filled:  # 직접 입력한 줄은 옅은 파랑으로 표시
+                w.tag_add("filled", f"{disp}.0", f"{disp}.end")
+            if has_todo or is_filled:  # 두 경우 모두 우측에 편집 버튼 유지
+                bg, fg = ("#fff0b8", _C_ACCENT) if has_todo else ("#dbe7ff", "#13386b")
                 btn = tk.Button(w, text="✏ 편집",
                                 command=lambda s=src_i: self._edit_line_at(w, s),
-                                font=("Segoe UI", 8, "bold"), fg=_C_ACCENT, bg="#fff0b8",
-                                activebackground="#ffe08a", activeforeground=_C_ACCENT,
+                                font=("Segoe UI", 8, "bold"), fg=fg, bg=bg,
+                                activebackground="#cfe0ff", activeforeground=fg,
                                 relief="flat", bd=0, padx=6, pady=0, cursor="hand2")
                 w.window_create(f"{disp}.end", window=btn, padx=6)
                 w._todo_btns.append(btn)
             disp += 1
-        w._disp_to_src = disp_to_src  # type: ignore[attr-defined]
+        w._disp_to_src = disp_to_src   # type: ignore[attr-defined]
+        w._src_to_disp = src_to_disp   # type: ignore[attr-defined]
         # 직접 작성/확인 필요 문구 강조
         for marker in ("확인 필요", "직접 작성"):
             start = "1.0"
@@ -842,10 +854,14 @@ class HandoverApp:
                 pos = w.search(marker, start, stopindex="end")
                 if not pos:
                     break
-                end = f"{pos}+{len(marker)}c"
-                w.tag_add("todo", pos, end)
-                start = end
+                w.tag_add("todo", pos, f"{pos}+{len(marker)}c")
+                start = f"{pos}+{len(marker)}c"
         w.configure(state="disabled")
+
+    def _edited_set_for(self, w: tk.Text) -> set:
+        """이 문서 위젯에 해당하는 rec의 '직접 입력된 줄' 집합을 돌려준다."""
+        rec = next((r for r in self._results.values() if r["widget"] is w), None)
+        return rec.get("edited", set()) if rec else set()
 
     def _edit_line_at(self, w: tk.Text, src_i: int) -> None:
         """줄 우측 ✏ 버튼 클릭 → 그 원본 줄만 편집."""
@@ -907,8 +923,10 @@ class HandoverApp:
 
         if is_placeholder_line and hint:
             show_placeholder()
+            entry.icursor(0)  # 커서를 맨 앞에 둬서 '플레이스홀더 뒤' 느낌 제거
         else:
             entry.insert(0, prefilled)
+            entry.icursor("end")
 
         def on_key(event):
             if state["placeholder"] and event.char and event.char.isprintable():
@@ -919,18 +937,25 @@ class HandoverApp:
         def on_focus_out(_e):
             if is_placeholder_line and hint and not entry.get().strip():
                 show_placeholder()
+                entry.icursor(0)
 
         entry.bind("<Key>", on_key)
         entry.bind("<FocusOut>", on_focus_out)
         entry.focus_set()
+        entry.icursor(0)
 
         def apply(_e=None):
             value = real_value()
             if value:
                 src_lines[src_i] = f"{prefix}{value}" if is_placeholder_line else value
                 rec["doc"] = "\n".join(src_lines)
+                rec.setdefault("edited", set()).add(src_i)  # 직접 입력 표시(파랑) 유지
                 self._render_doc(rec["widget"], rec["doc"])
                 self._update_todo_label(tab_id)
+                # 수정한 줄로 스크롤 유지
+                disp = getattr(rec["widget"], "_src_to_disp", {}).get(src_i)
+                if disp:
+                    rec["widget"].see(f"{disp}.0")
                 self.status.config(text="해당 줄을 작성했습니다. ‘이 결과 저장’으로 내보내세요.")
             top.destroy()
 
