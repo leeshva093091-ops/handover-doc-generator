@@ -1,8 +1,15 @@
-# 인수인계 문서 자동 생성기 (MVP)
+# 인수인계 문서 자동 생성기
 
-프로젝트 폴더를 넣으면 **설치·실행·주의사항**을 항상 같은 양식의 Markdown 인수인계
+![version](https://img.shields.io/badge/version-0.3.0-blue.svg)
+![python](https://img.shields.io/badge/python-3.9%2B-blue.svg)
+![dependencies](https://img.shields.io/badge/dependencies-none%20(stdlib)-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-27%20passing-brightgreen.svg)
+![platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)
+
+프로젝트 폴더나 Git URL을 넣으면 **설치·실행·주의사항**을 항상 같은 양식의 Markdown 인수인계
 문서로 뽑아준다. 폐쇄망 제약을 고려해 **외부 패키지 없이 파이썬 표준 라이브러리만** 사용한다.
 
+> **저장소**: https://github.com/leeshva093091-ops/handover-doc-generator
 > 기획 배경/범위: 상위 폴더의 [PRD.md](../PRD.md), 진행 현황: [CHECKLIST.md](../CHECKLIST.md)
 
 ## 요구사항
