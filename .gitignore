@@ -1,0 +1,11 @@
+# Claude Code 로컬 설정 (개인 환경 설정 — 공유 불필요)
+.claude/
+
+# Python
+__pycache__/
+*.py[cod]
+
+# 빌드 산출물 (handover_tool 내부에도 별도 .gitignore 있음)
+handover_tool/build/
+handover_tool/dist/
+handover_tool/*.spec

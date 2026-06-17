@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# 도구 실행 산출물 (인수인계 문서는 필요에 따라 생성)
+handover_demo.md
+out.md
+
+# PyInstaller 빌드 산출물
+build/
+dist/
+*.spec
