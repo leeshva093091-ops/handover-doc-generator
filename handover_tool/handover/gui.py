@@ -195,14 +195,16 @@ class HandoverApp:
         topbar = ttk.Frame(self.root, padding=(12, 8, 12, 0))
         topbar.pack(fill="x")
         ttk.Label(topbar, text="📄 인수인계 문서 생성기", font=self.f_h2).pack(side="left")
-        self.git_help_btn = tk.Button(topbar, text="?", command=self._show_git_help,
-                                      font=("Segoe UI", 9, "bold"), width=2,
-                                      relief="solid", bd=1, bg="#fff", fg=_C_ACCENT,
-                                      cursor="hand2")
+        # ? 도움말 버튼 (부드러운 플랫 칩 모양) — 상태칩의 '오른쪽'에 배치
+        self.git_help_btn = tk.Button(topbar, text="ⓘ", command=self._show_git_help,
+                                      font=("Segoe UI", 10, "bold"), bd=0,
+                                      relief="flat", bg="#e8eef7", fg=_C_ACCENT,
+                                      activebackground="#dce6f5", padx=8, pady=1,
+                                      highlightthickness=0, cursor="hand2")
         self.git_status = tk.Label(topbar, font=("Segoe UI", 9, "bold"), bg=_C_BG,
                                    cursor="hand2")
-        self.git_status.pack(side="right")
-        self.git_help_btn.pack(side="right", padx=(0, 6))  # 항상 표시 (상태 옆 도움말)
+        self.git_help_btn.pack(side="right")          # 가장 오른쪽
+        self.git_status.pack(side="right", padx=(0, 8))  # 그 왼쪽에 상태칩
         self.git_status.bind("<Button-1>", lambda _e: self._refresh_git_status())
         self._refresh_git_status()
 
@@ -326,6 +328,17 @@ class HandoverApp:
         if not self._analyzing:
             self.analyze_btn.config(state="normal" if (qcount or has_text) else "disabled")
 
+    # ---------- 공통 ----------
+    def _center_popup(self, top: tk.Toplevel) -> None:
+        """팝업을 메인 창 중앙에 배치한다."""
+        top.update_idletasks()
+        w, h = top.winfo_width(), top.winfo_height()
+        rx, ry = self.root.winfo_rootx(), self.root.winfo_rooty()
+        rw, rh = self.root.winfo_width(), self.root.winfo_height()
+        x = max(rx + (rw - w) // 2, 0)
+        y = max(ry + (rh - h) // 2, 0)
+        top.geometry(f"+{x}+{y}")
+
     # ---------- Git 상태 ----------
     def _refresh_git_status(self) -> None:
         """git 사용 가능 여부를 점검해 상단 상태칩과 도움말 버튼을 갱신한다."""
@@ -368,18 +381,11 @@ class HandoverApp:
         ttk.Label(top, text=msg, justify="left", foreground="#333",
                   wraplength=520).pack(anchor="w", pady=(8, 12))
 
-        def recheck():
-            self._refresh_git_status()
-            if shutil.which("git"):
-                messagebox.showinfo("확인", "Git이 인식되었습니다. 이제 URL 분석을 사용할 수 있어요.")
-                top.destroy()
-            else:
-                messagebox.showwarning("확인", "아직 git이 인식되지 않습니다. 설치 후 다시 시도하세요.")
-
         btns = ttk.Frame(top)
         btns.pack(fill="x")
-        ttk.Button(btns, text="다시 확인", style="Accent.TButton", command=recheck).pack(side="right")
-        ttk.Button(btns, text="닫기", command=top.destroy).pack(side="right", padx=(0, 6))
+        ttk.Button(btns, text="확인", style="Accent.TButton", command=top.destroy).pack(side="right")
+        top.bind("<Escape>", lambda _e: top.destroy())
+        self._center_popup(top)
         top.grab_set()
 
     # ---------- 큐 관리 ----------
@@ -1088,6 +1094,7 @@ class HandoverApp:
                        command=reset_to_todo).pack(side="left")
         entry.bind("<Return>", apply)
         top.bind("<Escape>", lambda _e: top.destroy())
+        self._center_popup(top)
         top.grab_set()
 
 
