@@ -136,26 +136,28 @@ class HandoverApp:
         style.configure("TLabelframe", background=bg, borderwidth=1, relief="solid")
         style.configure("TLabelframe.Label", background=bg, foreground=sub,
                         font=("Segoe UI", 9, "bold"))
-        # 버튼: 흰 배경 + 또렷한 테두리(플랫). 비활성도 글자가 읽히게.
-        style.configure("TButton", background="white", foreground="#1f2937",
-                        borderwidth=1, relief="flat", padding=(12, 7),
-                        bordercolor="#b9c0cb", lightcolor="#b9c0cb", darkcolor="#b9c0cb")
+        # 버튼: 연한 회색 채움 + 또렷한 테두리 → 배경(거의 흰색)과 분명히 구분.
+        btn_bg, btn_bd = "#eef1f6", "#aab2c0"
+        style.configure("TButton", background=btn_bg, foreground="#1f2937",
+                        borderwidth=1, relief="solid", padding=(12, 7),
+                        bordercolor=btn_bd, lightcolor=btn_bd, darkcolor=btn_bd)
         style.map("TButton",
-                  background=[("active", "#eef2f8"), ("pressed", "#e2e8f0"),
-                              ("disabled", "#eef0f3")],
-                  foreground=[("disabled", "#6b7280")],   # 비활성도 읽히는 회색
-                  bordercolor=[("disabled", "#d4d8de")],
-                  lightcolor=[("disabled", "#d4d8de")], darkcolor=[("disabled", "#d4d8de")])
-        # 강조 버튼(분석): 파랑 + 굵게
+                  background=[("active", "#e0e6ef"), ("pressed", "#d2dae6"),
+                              ("disabled", "#f1f2f4")],
+                  foreground=[("disabled", "#9aa1ab")],   # 비활성도 읽히는 회색
+                  bordercolor=[("active", "#8e98a8"), ("disabled", "#dde0e5")],
+                  lightcolor=[("active", "#8e98a8"), ("disabled", "#dde0e5")],
+                  darkcolor=[("active", "#8e98a8"), ("disabled", "#dde0e5")])
+        # 강조 버튼(분석): 파랑 채움 + 굵게
         style.configure("Accent.TButton", background=_C_ACCENT, foreground="white",
                         font=("Segoe UI", 10, "bold"), padding=(14, 8),
-                        bordercolor=_C_ACCENT, lightcolor=_C_ACCENT, darkcolor=_C_ACCENT)
+                        bordercolor="#2559c4", lightcolor="#2559c4", darkcolor="#2559c4")
         style.map("Accent.TButton",
                   background=[("active", "#2559c4"), ("pressed", "#1f4fb5"),
-                              ("disabled", "#e9ecf0")],
-                  foreground=[("disabled", "#9aa1ab")],
-                  bordercolor=[("disabled", "#d4d8de")],
-                  lightcolor=[("disabled", "#d4d8de")], darkcolor=[("disabled", "#d4d8de")])
+                              ("disabled", "#bcc6dd")],
+                  foreground=[("disabled", "#eef1f6")],
+                  bordercolor=[("disabled", "#bcc6dd")],
+                  lightcolor=[("disabled", "#bcc6dd")], darkcolor=[("disabled", "#bcc6dd")])
         # 입력
         style.configure("TEntry", fieldbackground="white", borderwidth=1, relief="solid",
                         padding=4)
