@@ -1,6 +1,6 @@
 """네이티브 데스크톱 GUI (tkinter — 표준 라이브러리, 외부 의존성 0).
 
-- 여러 소스를 큐에 담아 한 번에 분석 (폴더 추가 / 목록 추가 → 전체 분석)
+- 여러 프로젝트(폴더/파일/Git URL)를 큐에 담아 한 번에 분석
 - 분석 결과는 프로젝트별 탭으로 누적 (이전 결과 유지)
 - 각 결과는 '요약'(개요 카드 + 준비사항 + 설치·실행 + 민감정보 표)과
   '문서'(서식 적용된 Markdown) 하위 탭으로 표시
@@ -188,24 +188,21 @@ class HandoverApp:
 
     # ---------- 레이아웃 ----------
     def _build(self) -> None:
-        # 소스 추가 영역 — 로컬 폴더 / Git URL 두 경로를 명확히 구분
-        src_frame = ttk.LabelFrame(self.root, text=" 소스 추가 ", padding=8)
+        # 프로젝트 추가 영역 — 찾아보기(폴더/파일) 또는 Git URL 입력
+        src_frame = ttk.LabelFrame(self.root, text=" 프로젝트 추가 ", padding=8)
         src_frame.pack(fill="x", padx=12, pady=(12, 4))
 
-        # 1행: 로컬 폴더 / 파일 가져오기
-        ttk.Label(src_frame, text="📁 로컬", font=self.f_label,
+        # 1행: 프로젝트 찾아보기 (하나의 버튼 → 폴더/파일 선택 메뉴)
+        ttk.Label(src_frame, text="📂 프로젝트", font=self.f_label,
                   foreground=_C_OK).grid(row=0, column=0, sticky="w", padx=(0, 8))
-        btn_row = ttk.Frame(src_frame)
-        btn_row.grid(row=0, column=1, columnspan=2, sticky="w", pady=2)
-        self.browse_btn = ttk.Button(btn_row, text="폴더 찾아보기…", command=self._add_folder)
-        self.browse_btn.pack(side="left")
-        self.file_btn = ttk.Button(btn_row, text="파일 선택…", command=self._add_files)
-        self.file_btn.pack(side="left", padx=(6, 0))
-        ttk.Label(btn_row, text="폴더 또는 개별 파일(.java, .py, 문서 등)을 골라 목록에 담습니다.",
-                  foreground="#888").pack(side="left", padx=(8, 0))
+        self.browse_btn = ttk.Button(src_frame, text="프로젝트 찾아보기…",
+                                     command=self._browse_menu)
+        self.browse_btn.grid(row=0, column=1, sticky="w", pady=2)
+        ttk.Label(src_frame, text="프로젝트 폴더 또는 개별 파일(.java/.py/문서 등)을 골라 목록에 담습니다.",
+                  foreground="#888").grid(row=0, column=2, columnspan=2, sticky="w", padx=(8, 0))
 
-        # 2행: Git URL / 경로 직접 입력
-        ttk.Label(src_frame, text="🔗 Git URL / 경로", font=self.f_label,
+        # 2행: Git URL 또는 경로 직접 입력
+        ttk.Label(src_frame, text="🔗 Git URL/경로", font=self.f_label,
                   foreground=_C_ACCENT).grid(row=1, column=0, sticky="w", padx=(0, 8), pady=(6, 0))
         self.entry = ttk.Entry(src_frame, font=self.f_body)
         self.entry.grid(row=1, column=1, columnspan=2, sticky="we", pady=(6, 0))
@@ -213,7 +210,7 @@ class HandoverApp:
         self.entry.bind("<KeyRelease>", self._on_entry_change)
         self.add_btn = ttk.Button(src_frame, text="＋ 목록에 추가", command=self._add_to_queue)
         self.add_btn.grid(row=1, column=3, padx=(6, 0), pady=(6, 0))
-        # 입력 인식 표시 (Git URL인지 로컬 경로인지 실시간 안내)
+        # 입력 인식 표시 (Git URL인지 폴더/파일 경로인지 실시간 안내)
         self.type_label = ttk.Label(src_frame, text="", foreground="#888")
         self.type_label.grid(row=2, column=1, columnspan=2, sticky="w")
         src_frame.columnconfigure(2, weight=1)
@@ -237,7 +234,7 @@ class HandoverApp:
         bar = ttk.Frame(self.root, padding=(12, 4))
         bar.pack(fill="x")
         self.status = ttk.Label(bar, anchor="w", foreground="#444",
-                                text="소스를 추가하고 [분석 ▶ (전체)]을 누르세요. (Git URL은 git 설치 필요)")
+                                text="프로젝트를 추가하고 [분석 ▶ (전체)]을 누르세요. (Git URL은 git 설치 필요)")
         self.status.pack(side="left", fill="x", expand=True)
         self.progress = ttk.Progressbar(bar, mode="indeterminate", length=160)
 
@@ -263,7 +260,7 @@ class HandoverApp:
                        "정형 인수인계 문서로 자동 정리해 줍니다.").grid(
             row=1, column=0, columnspan=2, sticky="w", pady=(4, 16))
         steps = [
-            ("①  소스 추가", "‘폴더 찾아보기…’로 폴더를 고르거나, Git URL/경로를 입력하고 ‘＋ 목록에 추가’"),
+            ("①  프로젝트 추가", "‘프로젝트 찾아보기…’로 폴더/파일을 고르거나, Git URL을 입력하고 ‘＋ 목록에 추가’"),
             ("②  분석 실행", "‘분석 ▶ (전체)’를 누르면 목록의 항목들을 한 번에 분석합니다"),
             ("③  결과 확인", "프로젝트별 탭에서 ‘요약·파일·문서’를 보고, 탭 안의 ‘💾 이 결과 저장’으로 내보내기"),
         ]
@@ -298,7 +295,7 @@ class HandoverApp:
         elif source.is_url(text):
             self.type_label.config(text="🔗 Git URL로 인식 (git clone)", foreground=_C_ACCENT)
         else:
-            self.type_label.config(text="📁 로컬 경로로 인식", foreground=_C_OK)
+            self.type_label.config(text="📁 폴더/파일 경로로 인식", foreground=_C_OK)
         self._refresh_buttons()
 
     def _refresh_buttons(self) -> None:
@@ -312,6 +309,17 @@ class HandoverApp:
             self.analyze_btn.config(state="normal" if (qcount or has_text) else "disabled")
 
     # ---------- 큐 관리 ----------
+    def _browse_menu(self) -> None:
+        """하나의 '찾아보기' 버튼 → 폴더/파일 선택 메뉴를 버튼 아래에 띄운다."""
+        menu = tk.Menu(self.root, tearoff=0)
+        menu.add_command(label="📁 프로젝트 폴더 선택…", command=self._add_folder)
+        menu.add_command(label="📄 개별 파일 선택…", command=self._add_files)
+        b = self.browse_btn
+        try:
+            menu.tk_popup(b.winfo_rootx(), b.winfo_rooty() + b.winfo_height())
+        finally:
+            menu.grab_release()
+
     def _add_folder(self) -> None:
         chosen = filedialog.askdirectory(title="분석할 프로젝트 폴더 선택")
         if chosen:
@@ -319,7 +327,7 @@ class HandoverApp:
 
     def _add_files(self) -> None:
         # 여러 파일 동시 선택 가능 (자바·문서 등 개별 파일 분석)
-        paths = filedialog.askopenfilenames(title="분석할 파일 선택")
+        paths = filedialog.askopenfilenames(title="분석할 프로젝트 파일 선택")
         if paths:
             self._enqueue(list(paths))
 
@@ -361,7 +369,7 @@ class HandoverApp:
                     if p and p not in sources:
                         sources.append(p)
         if not sources:
-            messagebox.showwarning("입력 필요", "분석할 폴더/URL을 추가하세요.")
+            messagebox.showwarning("입력 필요", "분석할 프로젝트(폴더/파일/Git URL)를 추가하세요.")
             return
 
         self._analyzing = True
