@@ -105,9 +105,17 @@ class HandoverApp:
         self._results: dict[str, dict] = {}  # 탭 경로 -> {"doc","name"}
         self._analyzing = False
         root.title(f"인수인계 문서 생성기 v{__version__}")
-        root.geometry("1040x760")
+        root.geometry("1040x760")  # 창 복원(normal) 시 크기
         # 입력 영역 + 대기목록 + 결과 탭(2단 요약/표)이 잘리지 않는 최소 크기
         root.minsize(900, 680)
+        # 기본은 전체화면 크기(최대화)로 시작
+        try:
+            root.state("zoomed")  # Windows/대부분 환경
+        except tk.TclError:
+            try:
+                root.attributes("-zoomed", True)  # 일부 Linux WM
+            except tk.TclError:
+                root.geometry(f"{root.winfo_screenwidth()}x{root.winfo_screenheight()}+0+0")
         root.configure(bg=_C_BG)
         self._init_fonts()
         self._init_style()
