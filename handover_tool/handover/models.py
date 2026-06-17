@@ -41,11 +41,31 @@ class SensitiveFinding:
 
 
 @dataclass
+class CodeInsight:
+    """단일 코드 파일의 정적(휴리스틱) 분석 결과.
+
+    LLM 없이 정규식으로 추출하므로 '추정'이다. 단정적 동작 설명이 아니라
+    구조(임포트/클래스/함수)와 거기서 유추한 요약을 제공한다.
+    """
+
+    language: str = ""
+    loc: int = 0  # 코드 줄 수
+    description: str = ""  # 파일 상단 주석/독스트링에서 뽑은 설명
+    imports: list[str] = field(default_factory=list)
+    classes: list[str] = field(default_factory=list)
+    functions: list[str] = field(default_factory=list)
+    has_entrypoint: bool = False  # main/실행 진입점 존재 여부
+    summary: list[str] = field(default_factory=list)  # 유추한 동작 요약(휴리스틱)
+
+
+@dataclass
 class ProjectMetadata:
-    """프로젝트 한 개에 대한 분석 결과 전체."""
+    """프로젝트 한 개(또는 단일 파일)에 대한 분석 결과 전체."""
 
     name: str
     root: str
+    kind: str = "project"  # "project"(폴더/Git) 또는 "file"(단일 파일)
+    code: CodeInsight | None = None  # 단일 코드 파일일 때만 채워짐
     languages: list[str] = field(default_factory=list)
     readme_path: str | None = None
     readme_excerpt: str | None = None

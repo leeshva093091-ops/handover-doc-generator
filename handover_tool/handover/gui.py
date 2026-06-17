@@ -136,15 +136,26 @@ class HandoverApp:
         style.configure("TLabelframe", background=bg, borderwidth=1, relief="solid")
         style.configure("TLabelframe.Label", background=bg, foreground=sub,
                         font=("Segoe UI", 9, "bold"))
-        # 버튼: 플랫
-        style.configure("TButton", background="#eceff3", foreground="#222",
-                        borderwidth=0, relief="flat", padding=(12, 6))
-        style.map("TButton", background=[("active", "#dfe4ea"), ("disabled", "#f2f3f5")],
-                  foreground=[("disabled", "#b6bcc4")])
+        # 버튼: 흰 배경 + 또렷한 테두리(플랫). 비활성도 글자가 읽히게.
+        style.configure("TButton", background="white", foreground="#1f2937",
+                        borderwidth=1, relief="flat", padding=(12, 7),
+                        bordercolor="#b9c0cb", lightcolor="#b9c0cb", darkcolor="#b9c0cb")
+        style.map("TButton",
+                  background=[("active", "#eef2f8"), ("pressed", "#e2e8f0"),
+                              ("disabled", "#eef0f3")],
+                  foreground=[("disabled", "#6b7280")],   # 비활성도 읽히는 회색
+                  bordercolor=[("disabled", "#d4d8de")],
+                  lightcolor=[("disabled", "#d4d8de")], darkcolor=[("disabled", "#d4d8de")])
+        # 강조 버튼(분석): 파랑 + 굵게
         style.configure("Accent.TButton", background=_C_ACCENT, foreground="white",
-                        font=("Segoe UI", 10, "bold"), padding=(14, 7))
-        style.map("Accent.TButton", background=[("active", "#2559c4"),
-                                                ("disabled", "#aebfe6")])
+                        font=("Segoe UI", 10, "bold"), padding=(14, 8),
+                        bordercolor=_C_ACCENT, lightcolor=_C_ACCENT, darkcolor=_C_ACCENT)
+        style.map("Accent.TButton",
+                  background=[("active", "#2559c4"), ("pressed", "#1f4fb5"),
+                              ("disabled", "#e9ecf0")],
+                  foreground=[("disabled", "#9aa1ab")],
+                  bordercolor=[("disabled", "#d4d8de")],
+                  lightcolor=[("disabled", "#d4d8de")], darkcolor=[("disabled", "#d4d8de")])
         # 입력
         style.configure("TEntry", fieldbackground="white", borderwidth=1, relief="solid",
                         padding=4)
@@ -154,8 +165,10 @@ class HandoverApp:
         for tab in ("TNotebook.Tab", "Closable.TNotebook.Tab"):
             style.configure(tab, background="#e7eaef", foreground=sub,
                             padding=(14, 7), borderwidth=0)
+            # 선택 시 탭이 커지지 않도록 expand를 0으로 고정 (활성/비활성 크기 일관화)
             style.map(tab, background=[("selected", card)],
-                      foreground=[("selected", ink)])
+                      foreground=[("selected", ink)],
+                      expand=[("selected", [0, 0, 0, 0])])
         # 표
         style.configure("Treeview", background="white", fieldbackground="white",
                         borderwidth=1, relief="solid", rowheight=24, font=("Segoe UI", 9))
@@ -385,23 +398,37 @@ class HandoverApp:
             messagebox.showwarning("일부 분석 실패", msg)
 
     # ---------- 결과 탭 ----------
+    @staticmethod
+    def _todo_count(doc: str) -> int:
+        """직접 작성이 필요한 빈 항목(placeholder) 수."""
+        return doc.count("직접 작성")
+
     def _add_result_tab(self, meta, doc: str) -> None:
         outer = ttk.Frame(self.results_nb, padding=0)
+        tab_id = str(outer)
+        n_sens = len(meta.sensitive)
 
-        # 탭 상단 헤더: 민감정보 상태(좌) + 눈에 띄는 저장 버튼(우)
+        # 탭 상단 헤더: (좌) 민감정보 상태 + 직접작성 잔여 / (우) 수정·저장 버튼
         header = tk.Frame(outer, bg=_C_BG)
         header.pack(fill="x", padx=8, pady=(8, 0))
-        n_sens = len(meta.sensitive)
         if n_sens:
             tk.Label(header, bg=_C_BG, fg=_C_WARN, font=self.f_label,
-                     text=f"⚠️ 민감정보 의심 {n_sens}건 — 공유 전 확인").pack(side="left")
+                     text=f"⚠️ 민감정보 {n_sens}건").pack(side="left")
         else:
             tk.Label(header, bg=_C_BG, fg=_C_OK, font=self.f_label,
-                     text="✓ 민감정보 의심 없음").pack(side="left")
-        save = tk.Button(header, text="💾  이 결과 저장", command=lambda: self._save_doc(doc, meta.name),
+                     text="✓ 민감정보 없음").pack(side="left")
+        todo_label = tk.Label(header, bg=_C_BG, font=self.f_label)
+        todo_label.pack(side="left")
+
+        save = tk.Button(header, text="💾  이 결과 저장", command=lambda: self._save_tab(tab_id),
                          bg=_C_OK, fg="white", activebackground="#15692d", activeforeground="white",
                          font=("Segoe UI", 10, "bold"), relief="flat", padx=14, pady=4, cursor="hand2")
         save.pack(side="right")
+        edit_btn = tk.Button(header, text="✏  수정", command=lambda: self._toggle_edit(tab_id),
+                             bg="white", fg=_C_ACCENT, activeforeground=_C_ACCENT,
+                             font=("Segoe UI", 10, "bold"), relief="solid", bd=1,
+                             padx=12, pady=4, cursor="hand2")
+        edit_btn.pack(side="right", padx=(0, 6))
 
         sub = ttk.Notebook(outer)
         sub.pack(fill="both", expand=True, pady=(8, 0))
@@ -414,16 +441,59 @@ class HandoverApp:
         sub.add(tab_doc, text="  문서  ")
         self._build_summary(tab_summary, meta)
         self._build_files(tab_files, meta)
-        self._build_doc(tab_doc, doc)
+        doc_widget = self._make_doc_widget(tab_doc)
+        self._render_doc(doc_widget, doc)
 
         # 민감정보 유무를 탭에서 색(빨강/초록 점)으로 구분
         label = (meta.name or "result")[:24]
         dot = "🔴" if n_sens else "🟢"
         self.results_nb.add(outer, text=f"  {dot} {label}  ")
-        self._results[str(outer)] = {"doc": doc, "name": meta.name}
+        self._results[tab_id] = {
+            "doc": doc, "name": meta.name, "widget": doc_widget,
+            "sub": sub, "tab_doc": tab_doc, "edit_btn": edit_btn,
+            "todo_label": todo_label, "editing": False,
+        }
+        self._update_todo_label(tab_id)
         self._update_results_view()
         self.results_nb.select(outer)
         self._refresh_buttons()
+
+    def _update_todo_label(self, tab_id: str) -> None:
+        rec = self._results[tab_id]
+        n = self._todo_count(rec["doc"])
+        if n:
+            rec["todo_label"].config(text=f"    ✍ 직접 작성 필요 {n}곳", fg="#a15c00")
+        else:
+            rec["todo_label"].config(text="    ✓ 빈 항목 없음", fg=_C_OK)
+
+    def _toggle_edit(self, tab_id: str) -> None:
+        """문서 탭을 읽기/편집 모드로 토글한다."""
+        rec = self._results.get(tab_id)
+        if not rec:
+            return
+        self.results_nb.select(tab_id)
+        rec["sub"].select(rec["tab_doc"])  # 문서 하위 탭으로 전환
+        w = rec["widget"]
+        if not rec["editing"]:
+            # 편집 모드: 원본 Markdown을 평문으로 열어 직접 수정
+            rec["editing"] = True
+            w.config(state="normal", bg="#fffdf5")
+            for t in ("h1", "h2", "h3", "code", "quote", "bullet", "todo"):
+                w.tag_remove(t, "1.0", "end")
+            w.delete("1.0", "end")
+            w.insert("1.0", rec["doc"])
+            w.focus_set()
+            rec["edit_btn"].config(text="✓  수정 완료", fg="white", bg=_C_ACCENT)
+            self.status.config(text="편집 모드 — Markdown을 직접 수정한 뒤 ‘수정 완료’를 누르세요.")
+        else:
+            # 읽기 모드 복귀: 변경분 반영 + 다시 렌더
+            rec["editing"] = False
+            rec["doc"] = w.get("1.0", "end-1c")
+            w.config(bg=_C_CARD)
+            self._render_doc(w, rec["doc"])
+            rec["edit_btn"].config(text="✏  수정", fg=_C_ACCENT, bg="white")
+            self._update_todo_label(tab_id)
+            self.status.config(text="문서를 수정했습니다. ‘이 결과 저장’으로 내보내세요.")
 
     def _on_tab_close(self, tab_id: str) -> None:
         """탭 제목의 ✕ 클릭 시 호출."""
@@ -432,6 +502,11 @@ class HandoverApp:
             self._results.pop(tab_id, None)
             self._update_results_view()
             self._refresh_buttons()
+
+    def _save_tab(self, tab_id: str) -> None:
+        rec = self._results.get(tab_id)
+        if rec:
+            self._save_doc(rec["doc"], rec["name"])
 
     def _save_doc(self, doc: str, name: str) -> None:
         path = filedialog.asksaveasfilename(
@@ -473,7 +548,89 @@ class HandoverApp:
             bits.append("포트 " + ", ".join(meta.ports))
         return " · ".join(bits) + "  (README 설명 없음)"
 
+    def _fill_sensitive(self, frame: ttk.LabelFrame, meta) -> None:
+        """민감정보 표를 주어진 프레임에 채운다 (프로젝트/파일 요약 공용)."""
+        if meta.sensitive:
+            tv = ttk.Treeview(frame, columns=("kind", "loc", "conf"), show="headings", height=8)
+            tv.heading("kind", text="종류")
+            tv.heading("loc", text="위치")
+            tv.heading("conf", text="신뢰도")
+            tv.column("kind", width=150)
+            tv.column("loc", width=130)
+            tv.column("conf", width=55, anchor="center")
+            for conf, color in _CONF_COLOR.items():
+                tv.tag_configure(conf, background=color)
+            for s in meta.sensitive:
+                tv.insert("", "end", values=(s.kind, f"{s.file}:{s.line}", s.confidence),
+                          tags=(s.confidence,))
+            tv.pack(fill="both", expand=True)
+            ttk.Label(frame, foreground="#777", font=("Segoe UI", 8),
+                      text="값은 마스킹됨. 환경변수/시크릿 매니저로 분리 권장.").pack(anchor="w", pady=(4, 0))
+        else:
+            ttk.Label(frame, foreground=_C_OK,
+                      text="✓ 발견된 민감정보 의심 항목이 없습니다.").pack(pady=20)
+
+    def _build_file_summary(self, parent: ttk.Frame, meta) -> None:
+        """단일 파일용 요약 — 파일 카드 + 코드 분석 + 민감정보."""
+        c = meta.code
+        card = tk.Frame(parent, bg=_C_CARD, highlightbackground="#e3e6ea", highlightthickness=1)
+        card.pack(fill="x", pady=(0, 8))
+        inner = tk.Frame(card, bg=_C_CARD, padx=12, pady=10)
+        inner.pack(fill="x")
+        ttk.Label(inner, text=f"📄 {meta.name}", style="Title.TLabel").grid(
+            row=0, column=0, columnspan=2, sticky="w")
+        desc_text = (c.description if c and c.description
+                     else (meta.languages[0] + " 파일" if meta.languages else "비코드/문서 파일"))
+        tk.Label(inner, text=desc_text, bg=_C_CARD, fg="#444", font=self.f_body,
+                 wraplength=820, justify="left", anchor="w").grid(
+            row=1, column=0, columnspan=2, sticky="w", pady=(8, 10))
+
+        def kv(r, key, val):
+            ttk.Label(inner, text=key, style="Key.TLabel").grid(
+                row=r, column=0, sticky="nw", pady=2, padx=(0, 10))
+            ttk.Label(inner, text=val or "—", style="Card.TLabel",
+                      wraplength=820, justify="left").grid(row=r, column=1, sticky="w", pady=2)
+
+        kv(2, "출처", meta.root)
+        kv(3, "언어", ", ".join(meta.languages) or "비코드/미상")
+        kv(4, "코드 줄 수", f"{c.loc}줄" if c else "—")
+        inner.columnconfigure(1, weight=1)
+
+        cols = ttk.Frame(parent)
+        cols.pack(fill="both", expand=True)
+        cols.columnconfigure(0, weight=1)
+        cols.columnconfigure(1, weight=1)
+        cols.rowconfigure(0, weight=1)
+
+        # 코드 분석 (무엇을 하는 코드인가)
+        left = ttk.LabelFrame(cols, text=" 코드 분석 (무엇을 하는 코드인가) ", padding=6)
+        left.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
+        lt = tk.Text(left, wrap="word", font=self.f_body, relief="flat", bg="#fbfbfc")
+        lsb = ttk.Scrollbar(left, command=lt.yview)
+        lt.configure(yscrollcommand=lsb.set)
+        lsb.pack(side="right", fill="y")
+        lt.pack(side="left", fill="both", expand=True)
+        lt.tag_configure("hd", font=("Segoe UI", 9, "bold"), foreground=_C_ACCENT)
+        if c:
+            for line in c.summary:
+                lt.insert("end", f"• {line}\n")
+            lt.insert("end", "\n■ 구조\n", "hd")
+            lt.insert("end", f"   임포트: {', '.join(c.imports) if c.imports else '없음'}\n")
+            lt.insert("end", f"   클래스: {', '.join(c.classes) if c.classes else '없음'}\n")
+            lt.insert("end", f"   함수/메서드: {', '.join(c.functions) if c.functions else '없음'}\n")
+        else:
+            lt.insert("end", "코드 파일이 아니거나 내용 분석을 생략했습니다.\n"
+                             "(바이너리/문서 파일은 구조 분석 대상이 아닙니다.)")
+        lt.configure(state="disabled")
+
+        right = ttk.LabelFrame(cols, text=" ⚠️ 민감정보 의심 ", padding=6)
+        right.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
+        self._fill_sensitive(right, meta)
+
     def _build_summary(self, parent: ttk.Frame, meta) -> None:
+        if meta.kind == "file":
+            self._build_file_summary(parent, meta)
+            return
         card = tk.Frame(parent, bg=_C_CARD, highlightbackground="#e3e6ea", highlightthickness=1)
         card.pack(fill="x", pady=(0, 8))
         inner = tk.Frame(card, bg=_C_CARD, padx=12, pady=10)
@@ -534,28 +691,10 @@ class HandoverApp:
             lt.insert("end", "자동 감지된 항목 없음 — 직접 확인 필요")
         lt.configure(state="disabled")
 
-        # 민감정보 표
+        # 민감정보 표 (공용 헬퍼)
         right = ttk.LabelFrame(cols, text=" ⚠️ 민감정보 의심 ", padding=6)
         right.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
-        if meta.sensitive:
-            tv = ttk.Treeview(right, columns=("kind", "loc", "conf"), show="headings", height=8)
-            tv.heading("kind", text="종류")
-            tv.heading("loc", text="위치")
-            tv.heading("conf", text="신뢰도")
-            tv.column("kind", width=150)
-            tv.column("loc", width=130)
-            tv.column("conf", width=55, anchor="center")
-            for conf, color in _CONF_COLOR.items():
-                tv.tag_configure(conf, background=color)
-            for s in meta.sensitive:
-                tv.insert("", "end", values=(s.kind, f"{s.file}:{s.line}", s.confidence),
-                          tags=(s.confidence,))
-            tv.pack(fill="both", expand=True)
-            ttk.Label(right, foreground="#777", font=("Segoe UI", 8),
-                      text="값은 마스킹됨. 환경변수/시크릿 매니저로 분리 권장.").pack(anchor="w", pady=(4, 0))
-        else:
-            ttk.Label(right, foreground=_C_OK,
-                      text="✓ 발견된 민감정보 의심 항목이 없습니다.").pack(pady=20)
+        self._fill_sensitive(right, meta)
 
     # ---------- 파일 목록 렌더 ----------
     def _build_files(self, parent: ttk.Frame, meta) -> None:
@@ -590,9 +729,9 @@ class HandoverApp:
                       text="분석 대상 파일이 없습니다.").pack(anchor="w")
 
     # ---------- 문서 렌더 ----------
-    def _build_doc(self, parent: ttk.Frame, md: str) -> None:
+    def _make_doc_widget(self, parent: ttk.Frame) -> tk.Text:
         w = tk.Text(parent, wrap="word", font=self.f_body, padx=14, pady=12,
-                    relief="flat", bg=_C_CARD, spacing1=2, spacing3=2)
+                    relief="flat", bg=_C_CARD, spacing1=2, spacing3=2, undo=True)
         sb = ttk.Scrollbar(parent, command=w.yview)
         w.configure(yscrollcommand=sb.set)
         sb.pack(side="right", fill="y")
@@ -603,6 +742,16 @@ class HandoverApp:
         w.tag_configure("code", font=self.f_mono, background="#f1f3f5", lmargin1=14, lmargin2=14)
         w.tag_configure("quote", font=self.f_body, foreground="#777", lmargin1=10, lmargin2=10)
         w.tag_configure("bullet", font=self.f_body, lmargin1=18, lmargin2=30)
+        # 직접 작성/확인 필요 강조 (노란 배경)
+        w.tag_configure("todo", background="#fff3bf", foreground="#7a5d00")
+        return w
+
+    def _render_doc(self, w: tk.Text, md: str) -> None:
+        """Markdown을 서식 적용해 읽기 전용으로 표시 + 확인필요 강조."""
+        w.config(state="normal")
+        for t in ("h1", "h2", "h3", "code", "quote", "bullet", "todo"):
+            w.tag_remove(t, "1.0", "end")
+        w.delete("1.0", "end")
         in_code = False
         for line in md.splitlines():
             stripped = line.strip()
@@ -624,6 +773,16 @@ class HandoverApp:
                 w.insert("end", f"{indent}•  {stripped[2:]}\n", "bullet")
             else:
                 w.insert("end", line + "\n")
+        # 확인 필요/직접 작성 문구 강조
+        for marker in ("확인 필요", "직접 작성"):
+            start = "1.0"
+            while True:
+                pos = w.search(marker, start, stopindex="end")
+                if not pos:
+                    break
+                end = f"{pos}+{len(marker)}c"
+                w.tag_add("todo", pos, end)
+                start = end
         w.configure(state="disabled")
 
 

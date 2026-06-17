@@ -17,7 +17,76 @@ def _bullet(items: list[str]) -> str:
 
 
 def render_markdown(meta: ProjectMetadata, diff_md: str | None = None) -> str:
-    """정형 인수인계 문서 문자열을 생성한다.
+    """정형 인수인계 문서를 생성한다. 단일 파일과 프로젝트는 양식이 다르다."""
+    if meta.kind == "file":
+        return _render_file_markdown(meta, diff_md)
+    return _render_project_markdown(meta, diff_md)
+
+
+def _render_file_markdown(meta: ProjectMetadata, diff_md: str | None = None) -> str:
+    """단일 파일용 양식 (개요 → 코드 분석 → 주의사항 → 내용 미리보기)."""
+    lines: list[str] = []
+    lines.append(f"# 파일 인계 문서 — {meta.name}")
+    lines.append("")
+    lines.append("> 단일 파일 분석입니다. 자동 추출(정적 분석)은 빗나갈 수 있으니 "
+                 "`확인 필요` 항목을 검토하세요.")
+    lines.append("")
+
+    # 1. 파일 개요
+    lines.append("## 1. 파일 개요")
+    lines.append(f"- **파일명**: {meta.name}")
+    lines.append(f"- **출처**: `{meta.root}`")
+    lines.append(f"- **언어**: {', '.join(meta.languages) if meta.languages else '비코드/미상'}")
+    if meta.code:
+        lines.append(f"- **코드 줄 수**: {meta.code.loc}줄")
+        if meta.code.description:
+            lines.append(f"- **설명(주석 기반)**: {meta.code.description}")
+    lines.append("")
+
+    # 2. 코드 분석 (코드 파일일 때) — "무엇을 하는 코드인가"
+    if meta.code:
+        c = meta.code
+        lines.append("## 2. 코드 분석 (무엇을 하는 코드인가)")
+        lines.append(_bullet(c.summary))
+        lines.append("")
+        lines.append("### 구조")
+        lines.append(f"- 임포트/의존: {', '.join(c.imports) if c.imports else '없음/미검출'}")
+        lines.append(f"- 클래스: {', '.join(c.classes) if c.classes else '없음'}")
+        lines.append(f"- 함수/메서드: {', '.join(c.functions) if c.functions else '없음'}")
+        lines.append(f"- 실행 진입점: {'있음' if c.has_entrypoint else '없음(모듈/라이브러리 추정)'}")
+        lines.append("")
+
+    # 3. 주의사항 (민감정보 + 환경/포트 + 메모)
+    lines.append("## 3. 주의사항")
+    if meta.sensitive:
+        lines.append("| 종류 | 위치 | 미리보기(마스킹) | 신뢰도 |")
+        lines.append("|---|---|---|---|")
+        for f in meta.sensitive:
+            lines.append(f"| {f.kind} | `{f.file}:{f.line}` | `{f.masked}` | {f.confidence} |")
+        lines.append("")
+    if meta.env_vars:
+        lines.append(f"- 참조 환경변수: {', '.join(meta.env_vars)}")
+    if meta.ports:
+        lines.append(f"- 감지된 포트: {', '.join(meta.ports)}")
+    lines.append(_bullet(meta.notes) if meta.notes else "- 추가 메모 없음")
+    lines.append("")
+
+    # 4. 내용 미리보기
+    lines.append("## 4. 내용 미리보기")
+    lines.append("```")
+    lines.append(meta.readme_excerpt or _PLACEHOLDER)
+    lines.append("```")
+    lines.append("")
+
+    if diff_md is not None:
+        lines.append("## 5. 이전 분석 대비 변경 사항")
+        lines.append(diff_md)
+        lines.append("")
+    return "\n".join(lines)
+
+
+def _render_project_markdown(meta: ProjectMetadata, diff_md: str | None = None) -> str:
+    """프로젝트(폴더/Git)용 정형 양식.
 
     diff_md가 주어지면(재분석 시) '이전 분석 대비 변경 사항' 섹션을 덧붙인다.
     """

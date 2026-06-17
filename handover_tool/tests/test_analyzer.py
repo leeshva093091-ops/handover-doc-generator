@@ -174,10 +174,25 @@ class SingleFileTest(unittest.TestCase):
         # 폴더가 아닌 개별 파일도 분석 가능해야 한다 (config.py에 가짜 비밀값 포함).
         doc, meta = generate_document(str(SAMPLE / "config.py"))
         self.assertEqual(meta.name, "config.py")
+        self.assertEqual(meta.kind, "file")
         self.assertEqual(meta.files, ["config.py"])
         self.assertIn("Python", meta.languages)
         self.assertTrue(meta.sensitive)  # 하드코딩 비밀값 감지
-        self.assertIn("## 1. 개요", doc)
+
+    def test_file_template_differs_from_project(self):
+        # 단일 파일은 '파일 인계 문서' 양식, 코드 분석 섹션을 포함해야 한다.
+        doc, meta = generate_document(str(SAMPLE / "app.py"))
+        self.assertIn("# 파일 인계 문서", doc)
+        self.assertIn("## 2. 코드 분석", doc)
+        self.assertNotIn("## 6. 디렉터리 구조", doc)  # 프로젝트 전용 섹션은 없음
+
+    def test_code_insight_python(self):
+        _, meta = generate_document(str(SAMPLE / "app.py"))
+        self.assertIsNotNone(meta.code)
+        self.assertEqual(meta.code.language, "Python")
+        self.assertIn("main", meta.code.functions)   # def main() 존재
+        self.assertTrue(meta.code.has_entrypoint)     # __main__ 가드 존재
+        self.assertTrue(meta.code.summary)
 
     def test_single_text_file(self):
         doc, meta = generate_document(str(SAMPLE / "README.md"))

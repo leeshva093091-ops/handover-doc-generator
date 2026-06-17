@@ -10,7 +10,7 @@ import json
 import re
 from pathlib import Path
 
-from . import secrets
+from . import codeinsight, secrets
 from .models import DependencyGroup, ProjectMetadata, RunEntry, SensitiveFinding
 
 # 트리/언어 통계에서 제외할 잡음 디렉터리 (분석 가치가 낮고 양이 많음).
@@ -46,10 +46,11 @@ PORT_PATTERN = re.compile(r"\b(?:port|PORT)\s*[=:]\s*['\"]?(\d{2,5})")
 def read_text(path: Path, limit: int | None = None) -> str:
     """텍스트 파일을 안전하게 읽는다.
 
-    한글 Windows 환경을 고려해 utf-8 → cp949 순으로 시도하고, 그래도 실패하면
-    깨진 문자를 대체해 읽는다 (분석 도구가 인코딩 때문에 멈추면 안 됨).
+    한글 Windows 환경을 고려해 utf-8(BOM 자동 제거) → cp949 순으로 시도하고, 그래도
+    실패하면 깨진 문자를 대체해 읽는다 (분석 도구가 인코딩 때문에 멈추면 안 됨).
+    utf-8-sig를 먼저 써서 BOM(﻿)이 첫 줄 인식을 깨지 않게 한다.
     """
-    for encoding in ("utf-8", "cp949"):
+    for encoding in ("utf-8-sig", "cp949"):
         try:
             text = path.read_text(encoding=encoding)
             break
@@ -312,7 +313,7 @@ def _read_if_text(path: Path) -> tuple[bool, str]:
 
 def analyze_file(path: Path, name: str, origin: str) -> ProjectMetadata:
     """단일 파일을 분석한다 (자바·문서 등 개별 파일 인계용)."""
-    meta = ProjectMetadata(name=name, root=origin, files=[path.name])
+    meta = ProjectMetadata(name=name, root=origin, kind="file", files=[path.name])
     lang = LANGUAGE_BY_EXT.get(path.suffix.lower())
     if lang:
         meta.languages = [lang]
@@ -324,15 +325,18 @@ def analyze_file(path: Path, name: str, origin: str) -> ProjectMetadata:
         meta.ports = sorted({m.group(1) for m in PORT_PATTERN.finditer(text)}, key=int)
         meta.env_vars = sorted(secrets.find_env_vars(text))
         meta.sensitive = secrets.scan_text(path.name, text)
-        if path.name in ENTRYPOINT_FILES:
-            meta.run_entries = [RunEntry(kind="진입점",
-                                         detail=f"{path.name} — {ENTRYPOINT_FILES[path.name]}")]
+        # 코드 파일이면 "무엇을 하는 코드인지" 정적 분석.
+        if lang:
+            meta.code = codeinsight.analyze_code(text, lang)
+            if meta.code.has_entrypoint and path.name in ENTRYPOINT_FILES:
+                meta.run_entries = [RunEntry(kind="진입점",
+                                             detail=f"{path.name} — {ENTRYPOINT_FILES[path.name]}")]
     else:
         meta.notes.append("바이너리/비텍스트(또는 너무 큰) 파일 — 내용 분석을 생략했습니다.")
 
     meta.tree = path.name
     meta.prerequisites = derive_prerequisites(meta)
-    if not meta.sensitive and is_text:
+    if is_text:
         meta.notes.append("단일 파일 분석입니다. 전체 프로젝트 맥락은 포함되지 않습니다.")
     return meta
 
