@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 import threading
 import tkinter as tk
@@ -104,6 +105,8 @@ class HandoverApp:
         self.root = root
         self._results: dict[str, dict] = {}  # 탭 경로 -> {"doc","name"}
         self._analyzing = False
+        self._config_path = Path.home() / ".handover-doc-generator.json"
+        self._config = self._load_config()
         root.title(f"인수인계 문서 생성기 v{__version__}")
         root.geometry("1040x760")  # 창 복원(normal) 시 크기
         # 입력 영역 + 대기목록 + 결과 탭(2단 요약/표)이 잘리지 않는 최소 크기
@@ -264,6 +267,8 @@ class HandoverApp:
         self.status = ttk.Label(bar, anchor="w", foreground="#444",
                                 text="프로젝트를 추가하고 [분석 ▶ (전체)]을 누르세요. (Git URL은 git 설치 필요)")
         self.status.pack(side="left", fill="x", expand=True)
+        self.save_all_btn = ttk.Button(bar, text="💾 전체 저장", command=self._save_all)
+        self.save_all_btn.pack(side="right", padx=(6, 0))
         self.progress = ttk.Progressbar(bar, mode="indeterminate", length=160)
 
         # 결과 영역: 결과가 없으면 사용 가이드, 있으면 프로젝트별 탭(✕로 닫기).
@@ -335,6 +340,8 @@ class HandoverApp:
         self.del_btn.config(state="normal" if self.queue_list.curselection() else "disabled")
         if not self._analyzing:
             self.analyze_btn.config(state="normal" if (qcount or has_text) else "disabled")
+        if hasattr(self, "save_all_btn"):
+            self.save_all_btn.config(state="normal" if self._results else "disabled")
 
     # ---------- 공통 ----------
     def _center_popup(self, top: tk.Toplevel) -> None:
@@ -398,12 +405,50 @@ class HandoverApp:
         self._center_popup(top)
         top.grab_set()
 
+    # ---------- 설정(최근/마지막 폴더) ----------
+    def _load_config(self) -> dict:
+        try:
+            data = json.loads(self._config_path.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                return data
+        except (OSError, ValueError):
+            pass
+        return {"last_dir": "", "recent": []}
+
+    def _save_config(self) -> None:
+        try:
+            self._config_path.write_text(
+                json.dumps(self._config, ensure_ascii=False, indent=2), encoding="utf-8")
+        except OSError:
+            pass
+
+    def _remember(self, items: list[str]) -> None:
+        """최근 항목/마지막 폴더를 기억한다."""
+        recent = self._config.get("recent", [])
+        for it in items:
+            if it in recent:
+                recent.remove(it)
+            recent.insert(0, it)
+        self._config["recent"] = recent[:10]
+        # 마지막 폴더: 폴더면 그대로, 파일이면 상위 폴더 (URL은 제외)
+        first = items[0] if items else ""
+        if first and not source.is_url(first):
+            p = Path(first)
+            self._config["last_dir"] = str(p if p.is_dir() else p.parent)
+        self._save_config()
+
     # ---------- 큐 관리 ----------
     def _browse_menu(self) -> None:
-        """하나의 '찾아보기' 버튼 → 폴더/파일 선택 메뉴를 버튼 아래에 띄운다."""
+        """하나의 '찾아보기' 버튼 → 폴더/파일 선택 + 최근 항목 메뉴."""
         menu = tk.Menu(self.root, tearoff=0)
         menu.add_command(label="📁 프로젝트 폴더 선택…", command=self._add_folder)
         menu.add_command(label="📄 개별 파일 선택…", command=self._add_files)
+        recent = self._config.get("recent", [])
+        if recent:
+            menu.add_separator()
+            for item in recent[:8]:
+                label = item if len(item) <= 60 else "…" + item[-58:]
+                menu.add_command(label=f"🕘 {label}", command=lambda it=item: self._enqueue([it]))
         b = self.browse_btn
         try:
             menu.tk_popup(b.winfo_rootx(), b.winfo_rooty() + b.winfo_height())
@@ -411,13 +456,17 @@ class HandoverApp:
             menu.grab_release()
 
     def _add_folder(self) -> None:
-        chosen = filedialog.askdirectory(title="분석할 프로젝트 폴더 선택")
+        chosen = filedialog.askdirectory(
+            title="분석할 프로젝트 폴더 선택",
+            initialdir=self._config.get("last_dir") or None)
         if chosen:
             self._enqueue([chosen])
 
     def _add_files(self) -> None:
         # 여러 파일 동시 선택 가능 (자바·문서 등 개별 파일 분석)
-        paths = filedialog.askopenfilenames(title="분석할 프로젝트 파일 선택")
+        paths = filedialog.askopenfilenames(
+            title="분석할 프로젝트 파일 선택",
+            initialdir=self._config.get("last_dir") or None)
         if paths:
             self._enqueue(list(paths))
 
@@ -437,6 +486,8 @@ class HandoverApp:
             if it not in existing:
                 self.queue_list.insert("end", it)
                 existing.add(it)
+        if items:
+            self._remember(items)
         self._refresh_buttons()
 
     def _del_selected(self) -> None:
@@ -545,21 +596,29 @@ class HandoverApp:
         self._build_summary(tab_summary, meta)
         self._build_files(tab_files, meta)
 
-        # 문서 탭: 안쪽 상단에 수정 버튼(예쁜 색) + 그 아래 문서 뷰
+        # 문서 뷰(먼저 생성) — 검색/수정 버튼이 이 위젯을 참조
+        doc_host = ttk.Frame(tab_doc)
+        doc_host.pack(fill="both", expand=True)
+        doc_widget = self._make_doc_widget(doc_host)
+        self._render_doc(doc_widget, doc)
+
+        # 문서 탭 상단 바: 검색(좌) + 수정 버튼(우) — doc_host 위에 배치
         doc_bar = tk.Frame(tab_doc, bg=_C_BG)
-        doc_bar.pack(fill="x", padx=8, pady=(8, 2))
-        tk.Label(doc_bar, bg=_C_BG, fg="#888", font=("Segoe UI", 9),
-                 text="문서를 직접 다듬을 수 있어요").pack(side="left")
+        doc_bar.pack(fill="x", padx=8, pady=(8, 2), before=doc_host)
+        sv = tk.StringVar()
+        se = tk.Entry(doc_bar, textvariable=sv, width=24, relief="solid", bd=1)
+        se.pack(side="left")
+        se.bind("<Return>", lambda _e: self._doc_search(doc_widget, sv.get()))
+        tk.Button(doc_bar, text="🔎 찾기",
+                  command=lambda: self._doc_search(doc_widget, sv.get()),
+                  bg="#eef1f6", fg="#333", activebackground="#e0e6ef",
+                  relief="flat", bd=0, padx=10, pady=4, cursor="hand2").pack(side="left", padx=(4, 0))
         edit_btn = tk.Button(doc_bar, text="✏  문서 직접 수정",
                              command=lambda: self._toggle_edit(tab_id),
                              bg="#eaf1ff", fg=_C_ACCENT, activebackground="#d8e6ff",
                              activeforeground=_C_ACCENT, font=("Segoe UI", 10, "bold"),
                              relief="flat", bd=0, padx=14, pady=5, cursor="hand2")
         edit_btn.pack(side="right")
-        doc_host = ttk.Frame(tab_doc)
-        doc_host.pack(fill="both", expand=True)
-        doc_widget = self._make_doc_widget(doc_host)
-        self._render_doc(doc_widget, doc)
 
         # 민감정보 유무를 탭에서 색(빨강/초록 점)으로 구분
         label = (meta.name or "result")[:24]
@@ -713,6 +772,31 @@ class HandoverApp:
         if d.has_new_sensitive():
             msg += " ⚠️ 새 민감정보 발견!"
         self.status.config(text=msg)
+
+    def _save_all(self) -> None:
+        """열린 모든 결과 탭을 한 폴더에 일괄 저장(.md)."""
+        if not self._results:
+            messagebox.showinfo("전체 저장", "저장할 결과가 없습니다.")
+            return
+        folder = filedialog.askdirectory(title="모든 결과를 저장할 폴더 선택",
+                                         initialdir=self._config.get("last_dir") or None)
+        if not folder:
+            return
+        saved, used = 0, set()
+        for rec in self._results.values():
+            safe = "".join(c if c.isalnum() or c in "-_." else "_" for c in rec["name"]) or "result"
+            fname = f"{safe}-handover.md"
+            i = 2
+            while fname in used:  # 동일 이름 충돌 방지
+                fname = f"{safe}-handover({i}).md"
+                i += 1
+            used.add(fname)
+            try:
+                (Path(folder) / fname).write_text(rec["doc"], encoding="utf-8")
+                saved += 1
+            except OSError as exc:
+                messagebox.showerror("저장 실패", f"{fname}: {exc}")
+        self.status.config(text=f"전체 저장 완료: {saved}개 → {folder}")
 
     def _save_doc(self, doc: str, name: str) -> None:
         path = filedialog.asksaveasfilename(
@@ -954,8 +1038,30 @@ class HandoverApp:
         w.tag_configure("filled", background="#e8f0ff", foreground="#13386b")
         # 클릭 이동 시 해당 줄 강조
         w.tag_configure("jump", background="#ffe08a")
+        # 검색 결과 강조
+        w.tag_configure("search", background="#b3d9ff")
         w._todo_btns = []  # type: ignore[attr-defined]  # 줄 우측 편집 버튼들
+        w._search_pos = "1.0"  # type: ignore[attr-defined]  # 다음 검색 시작 위치
         return w
+
+    def _doc_search(self, w: tk.Text, query: str) -> None:
+        """문서에서 query를 찾아 강조하고 다음 위치로 이동(반복 시 순환)."""
+        query = query.strip()
+        w.tag_remove("search", "1.0", "end")
+        if not query:
+            return
+        start = getattr(w, "_search_pos", "1.0")
+        pos = w.search(query, start, stopindex="end", nocase=True)
+        if not pos:  # 끝까지 갔으면 처음부터
+            pos = w.search(query, "1.0", stopindex="end", nocase=True)
+        if not pos:
+            self.status.config(text=f"‘{query}’ 를 찾지 못했습니다.")
+            return
+        end = f"{pos}+{len(query)}c"
+        w.tag_add("search", pos, end)
+        w.see(pos)
+        w._search_pos = end  # type: ignore[attr-defined]
+        self.status.config(text=f"‘{query}’ 찾음 — 다시 누르면 다음 위치")
 
     def _render_doc(self, w: tk.Text, md: str) -> None:
         """Markdown을 서식 적용해 읽기 전용으로 표시.
