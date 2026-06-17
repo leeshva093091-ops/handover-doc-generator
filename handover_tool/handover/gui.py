@@ -779,24 +779,33 @@ class HandoverApp:
         w.tag_configure("code", font=self.f_mono, background="#f1f3f5", lmargin1=14, lmargin2=14)
         w.tag_configure("quote", font=self.f_body, foreground="#777", lmargin1=10, lmargin2=10)
         w.tag_configure("bullet", font=self.f_body, lmargin1=18, lmargin2=30)
-        # 직접 작성/확인 필요 강조 (노란 배경)
+        # 직접 작성/확인 필요 강조 (노란 배경) — 클릭하면 그 줄만 인라인 편집
         w.tag_configure("todo", background="#fff3bf", foreground="#7a5d00")
+        w.tag_bind("todo", "<Button-1>", self._on_todo_click)
+        w.tag_bind("todo", "<Enter>", lambda _e, ww=w: ww.config(cursor="hand2"))
+        w.tag_bind("todo", "<Leave>", lambda _e, ww=w: ww.config(cursor=""))
         # 클릭 이동 시 해당 줄 강조
         w.tag_configure("jump", background="#ffe08a")
         return w
 
     def _render_doc(self, w: tk.Text, md: str) -> None:
-        """Markdown을 서식 적용해 읽기 전용으로 표시 + 확인필요 강조."""
+        """Markdown을 서식 적용해 읽기 전용으로 표시 + 확인필요 강조.
+
+        표시된 각 줄 ↔ 원본 Markdown 줄 인덱스 매핑(w._disp_to_src)을 남겨,
+        강조 텍스트 클릭 시 해당 원본 줄만 편집할 수 있게 한다.
+        """
         w.config(state="normal")
-        for t in ("h1", "h2", "h3", "code", "quote", "bullet", "todo"):
+        for t in ("h1", "h2", "h3", "code", "quote", "bullet", "todo", "jump"):
             w.tag_remove(t, "1.0", "end")
         w.delete("1.0", "end")
+        disp_to_src: dict[int, int] = {}
+        disp = 1
         in_code = False
-        for line in md.splitlines():
+        for src_i, line in enumerate(md.split("\n")):
             stripped = line.strip()
             if stripped.startswith("```"):
                 in_code = not in_code
-                continue
+                continue  # 코드펜스 줄은 표시하지 않음 (표시 줄 증가 없음)
             if in_code or stripped.startswith("|"):
                 w.insert("end", line + "\n", "code")
             elif line.startswith("### "):
@@ -812,6 +821,9 @@ class HandoverApp:
                 w.insert("end", f"{indent}•  {stripped[2:]}\n", "bullet")
             else:
                 w.insert("end", line + "\n")
+            disp_to_src[disp] = src_i
+            disp += 1
+        w._disp_to_src = disp_to_src  # type: ignore[attr-defined]
         # 확인 필요/직접 작성 문구 강조
         for marker in ("확인 필요", "직접 작성"):
             start = "1.0"
@@ -823,6 +835,60 @@ class HandoverApp:
                 w.tag_add("todo", pos, end)
                 start = end
         w.configure(state="disabled")
+
+    def _on_todo_click(self, event) -> None:
+        """노란 강조(직접작성) 텍스트 클릭 → 그 줄만 인라인 편집."""
+        w = event.widget
+        # 편집 모드(전체 수정)일 땐 그대로 두기
+        rec_pair = next(((tid, r) for tid, r in self._results.items()
+                         if r["widget"] is w), (None, None))
+        tab_id, rec = rec_pair
+        if not rec or rec.get("editing"):
+            return
+        disp_line = int(w.index(f"@{event.x},{event.y}").split(".")[0])
+        src_i = getattr(w, "_disp_to_src", {}).get(disp_line)
+        if src_i is None:
+            return
+        self._edit_single_line(tab_id, rec, src_i)
+
+    def _edit_single_line(self, tab_id: str, rec: dict, src_i: int) -> None:
+        """원본 Markdown의 한 줄만 팝업으로 편집한다."""
+        src_lines = rec["doc"].split("\n")
+        if not (0 <= src_i < len(src_lines)):
+            return
+        current = src_lines[src_i]
+
+        top = tk.Toplevel(self.root)
+        top.title("이 줄만 직접 작성/수정")
+        top.transient(self.root)
+        top.configure(bg=_C_BG, padx=14, pady=12)
+        ttk.Label(top, text="이 줄의 내용을 입력하세요 (Markdown 형식 유지):",
+                  font=self.f_label).pack(anchor="w")
+        var = tk.StringVar(value=current)
+        entry = ttk.Entry(top, textvariable=var, width=90, font=self.f_body)
+        entry.pack(fill="x", pady=(6, 4))
+        entry.focus_set()
+        entry.icursor("end")
+        hint = ("예: '- **목적/설명**: 사용자 알림을 보내는 배치 서비스' 처럼 "
+                "‘✍ 직접 작성 필요’ 부분을 실제 내용으로 바꾸세요.")
+        ttk.Label(top, text=hint, foreground="#888", wraplength=620,
+                  justify="left").pack(anchor="w", pady=(0, 8))
+
+        def apply(_e=None):
+            src_lines[src_i] = var.get()
+            rec["doc"] = "\n".join(src_lines)
+            self._render_doc(rec["widget"], rec["doc"])
+            self._update_todo_label(tab_id)
+            self.status.config(text="해당 줄을 수정했습니다. ‘이 결과 저장’으로 내보내세요.")
+            top.destroy()
+
+        btns = ttk.Frame(top)
+        btns.pack(fill="x")
+        ttk.Button(btns, text="적용", style="Accent.TButton", command=apply).pack(side="right")
+        ttk.Button(btns, text="취소", command=top.destroy).pack(side="right", padx=(0, 6))
+        entry.bind("<Return>", apply)
+        top.bind("<Escape>", lambda _e: top.destroy())
+        top.grab_set()
 
 
 def run() -> None:
