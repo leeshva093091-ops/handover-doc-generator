@@ -15,7 +15,6 @@ from handover.analyzer import analyze_project  # noqa: E402
 from handover.template import render_markdown  # noqa: E402
 from handover import secrets  # noqa: E402
 from handover import source  # noqa: E402
-from handover import web  # noqa: E402
 from handover import snapshot  # noqa: E402
 from handover.service import generate_document  # noqa: E402
 
@@ -150,29 +149,6 @@ class SourceTest(unittest.TestCase):
     def test_resolve_local_missing_raises(self):
         with self.assertRaises(source.SourceError):
             source.resolve(str(SAMPLE.parent / "없는경로_xyz"))
-
-
-class WebTest(unittest.TestCase):
-    def test_form_renders(self):
-        page = web.render_form()
-        self.assertIn("<form", page)
-        self.assertIn("name='source'", page)
-
-    def test_form_escapes_error_and_value(self):
-        # 사용자 입력/에러 메시지는 이스케이프되어 XSS로 이어지지 않아야 한다.
-        page = web.render_form(error="<script>x</script>", value="<b>v</b>")
-        self.assertNotIn("<script>x</script>", page)
-        self.assertIn("&lt;script&gt;", page)
-
-    def test_result_has_document_and_download(self):
-        document, meta = generate_document(str(SAMPLE))
-        page = web.render_result(str(SAMPLE), document, meta)
-        self.assertIn("<textarea", page)
-        self.assertIn("download=", page)
-        # 샘플엔 민감정보가 있으므로 경고가 떠야 한다.
-        self.assertIn("민감정보 의심", page)
-        # 마스킹된 값만 노출되고 원본 비밀번호는 페이지에 없어야 한다.
-        self.assertNotIn("s3cr3tP@ssw0rd", page)
 
 
 class ServiceTest(unittest.TestCase):

@@ -855,35 +855,83 @@ class HandoverApp:
             return
         self._edit_single_line(tab_id, rec, src_i)
 
+    _TODO_MARK = "✍ **직접 작성 필요**"
+
     def _edit_single_line(self, tab_id: str, rec: dict, src_i: int) -> None:
-        """원본 Markdown의 한 줄만 팝업으로 편집한다."""
+        """원본 Markdown의 한 줄만 팝업으로 편집한다.
+
+        '✍ 직접 작성 필요 — 힌트' 줄은 접두(라벨)는 유지하고, 힌트를 입력칸의
+        회색 플레이스홀더로 보여준 뒤 사용자가 값만 채우게 한다.
+        """
         src_lines = rec["doc"].split("\n")
         if not (0 <= src_i < len(src_lines)):
             return
         current = src_lines[src_i]
 
+        if self._TODO_MARK in current:
+            prefix, after = current.split(self._TODO_MARK, 1)
+            hint = after.lstrip(" —").strip() or "내용을 입력하세요"
+            lbl = prefix.strip()
+            for ch in ("-", "*", "`"):
+                lbl = lbl.replace(ch, "")
+            lbl = lbl.strip().rstrip(":= ").strip() or "이 항목"
+            prefilled, is_placeholder_line = "", True
+        else:
+            prefix, hint, lbl = "", "", current.strip() or "이 줄"
+            prefilled, is_placeholder_line = current, False
+
         top = tk.Toplevel(self.root)
-        top.title("이 줄만 직접 작성/수정")
+        top.title("직접 작성")
         top.transient(self.root)
-        top.configure(bg=_C_BG, padx=14, pady=12)
-        ttk.Label(top, text="이 줄의 내용을 입력하세요 (Markdown 형식 유지):",
-                  font=self.f_label).pack(anchor="w")
-        var = tk.StringVar(value=current)
-        entry = ttk.Entry(top, textvariable=var, width=90, font=self.f_body)
-        entry.pack(fill="x", pady=(6, 4))
+        top.configure(bg=_C_BG, padx=16, pady=14)
+        ttk.Label(top, text=f"[{lbl}] 작성", font=self.f_h3).pack(anchor="w")
+        if prefix.strip():
+            ttk.Label(top, text=f"미리보기 접두: {prefix.strip()}", foreground="#888",
+                      font=("Segoe UI", 8)).pack(anchor="w", pady=(2, 0))
+
+        ph_color, normal_color = "#9aa1ab", "#1b1b1b"
+        entry = tk.Entry(top, width=92, font=self.f_body, fg=normal_color,
+                         relief="solid", bd=1)
+        entry.pack(fill="x", ipady=4, pady=(8, 8))
+
+        state = {"placeholder": False}
+
+        def show_placeholder():
+            entry.delete(0, "end")
+            entry.insert(0, hint)
+            entry.config(fg=ph_color)
+            state["placeholder"] = True
+
+        def real_value() -> str:
+            return "" if state["placeholder"] else entry.get().strip()
+
+        if is_placeholder_line and hint:
+            show_placeholder()
+        else:
+            entry.insert(0, prefilled)
+
+        def on_key(event):
+            if state["placeholder"] and event.char and event.char.isprintable():
+                entry.delete(0, "end")
+                entry.config(fg=normal_color)
+                state["placeholder"] = False
+
+        def on_focus_out(_e):
+            if is_placeholder_line and hint and not entry.get().strip():
+                show_placeholder()
+
+        entry.bind("<Key>", on_key)
+        entry.bind("<FocusOut>", on_focus_out)
         entry.focus_set()
-        entry.icursor("end")
-        hint = ("예: '- **목적/설명**: 사용자 알림을 보내는 배치 서비스' 처럼 "
-                "‘✍ 직접 작성 필요’ 부분을 실제 내용으로 바꾸세요.")
-        ttk.Label(top, text=hint, foreground="#888", wraplength=620,
-                  justify="left").pack(anchor="w", pady=(0, 8))
 
         def apply(_e=None):
-            src_lines[src_i] = var.get()
-            rec["doc"] = "\n".join(src_lines)
-            self._render_doc(rec["widget"], rec["doc"])
-            self._update_todo_label(tab_id)
-            self.status.config(text="해당 줄을 수정했습니다. ‘이 결과 저장’으로 내보내세요.")
+            value = real_value()
+            if value:
+                src_lines[src_i] = f"{prefix}{value}" if is_placeholder_line else value
+                rec["doc"] = "\n".join(src_lines)
+                self._render_doc(rec["widget"], rec["doc"])
+                self._update_todo_label(tab_id)
+                self.status.config(text="해당 줄을 작성했습니다. ‘이 결과 저장’으로 내보내세요.")
             top.destroy()
 
         btns = ttk.Frame(top)

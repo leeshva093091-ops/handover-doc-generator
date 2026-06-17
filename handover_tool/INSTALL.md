@@ -83,14 +83,11 @@ cd C:\lshDEV\itcen_edu_0617\handover_tool
 # 단위 테스트 (표준 라이브러리 unittest — 추가 설치 불필요)
 python -m unittest discover -s tests
 
-# 샘플 프로젝트 분석 (결과 미리보기)
-python -m handover .\samples\demo_project
-
-# 파일로 저장
-python -m handover .\samples\demo_project -o handover.md
+# GUI 실행 (개발 중)
+python handover_gui.py
 ```
 
-테스트가 모두 통과하고 6섹션 인수인계 문서가 출력되면 정상이다.
+테스트가 모두 통과하고 GUI 창이 뜨면 정상이다. 배포본은 `dist\handover-gui.exe` 더블클릭.
 
 ---
 
