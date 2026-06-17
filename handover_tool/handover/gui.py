@@ -383,7 +383,9 @@ class HandoverApp:
 
         btns = ttk.Frame(top)
         btns.pack(fill="x")
-        ttk.Button(btns, text="확인", style="Accent.TButton", command=top.destroy).pack(side="right")
+        # 확인 버튼은 가운데 정렬
+        ttk.Button(btns, text="확인", style="Accent.TButton",
+                   command=top.destroy).pack(anchor="center", pady=(2, 0))
         top.bind("<Escape>", lambda _e: top.destroy())
         self._center_popup(top)
         top.grab_set()
