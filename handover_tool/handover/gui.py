@@ -197,11 +197,12 @@ class HandoverApp:
         ttk.Label(topbar, text="📄 인수인계 문서 생성기", font=self.f_h2).pack(side="left")
         self.git_help_btn = tk.Button(topbar, text="?", command=self._show_git_help,
                                       font=("Segoe UI", 9, "bold"), width=2,
-                                      relief="solid", bd=1, bg="#fff", fg=_C_WARN,
+                                      relief="solid", bd=1, bg="#fff", fg=_C_ACCENT,
                                       cursor="hand2")
         self.git_status = tk.Label(topbar, font=("Segoe UI", 9, "bold"), bg=_C_BG,
                                    cursor="hand2")
         self.git_status.pack(side="right")
+        self.git_help_btn.pack(side="right", padx=(0, 6))  # 항상 표시 (상태 옆 도움말)
         self.git_status.bind("<Button-1>", lambda _e: self._refresh_git_status())
         self._refresh_git_status()
 
@@ -331,30 +332,39 @@ class HandoverApp:
         available = shutil.which("git") is not None
         if available:
             self.git_status.config(text="● Git 사용 가능", fg=_C_OK)
-            self.git_help_btn.pack_forget()
+            self.git_help_btn.config(fg=_C_ACCENT)
         else:
             self.git_status.config(text="● Git 없음 (URL 분석 불가)", fg=_C_WARN)
-            self.git_help_btn.pack(side="right", padx=(0, 6))
+            self.git_help_btn.config(fg=_C_WARN)  # 없을 땐 빨강으로 주목
 
     def _show_git_help(self) -> None:
-        """git 설치/연결 안내 팝업."""
+        """git 설치/연결 안내 팝업 (상태에 따라 내용이 달라짐)."""
+        available = shutil.which("git") is not None
         top = tk.Toplevel(self.root)
-        top.title("Git 설치 / 연결 안내")
+        top.title("Git 안내")
         top.transient(self.root)
         top.configure(bg=_C_BG, padx=18, pady=16)
-        ttk.Label(top, text="Git이 설치되어 있지 않습니다", font=self.f_h3,
-                  foreground=_C_WARN).pack(anchor="w")
-        msg = (
-            "Git 저장소 URL을 입력해 분석하려면 실행 PC에 git이 필요합니다.\n"
-            "(폴더·파일 분석은 git 없이도 정상 동작합니다.)\n\n"
-            "● 설치 방법 (Windows)\n"
-            "   - 인터넷 가능: https://git-scm.com/download/win 에서 설치\n"
-            "     또는 명령창에서  winget install Git.Git\n"
-            "   - 폐쇄망: 위 설치본(.exe)을 인터넷 PC에서 받아 사내 반입 후 설치\n\n"
-            "● 설치 후\n"
-            "   - 이 프로그램을 다시 실행하거나, 아래 ‘다시 확인’을 누르면 인식됩니다.\n"
-            "   - 사내 GitHub(Enterprise)도 git 접근이 되면 동일하게 동작합니다."
-        )
+        if available:
+            ttk.Label(top, text="Git 사용 가능", font=self.f_h3,
+                      foreground=_C_OK).pack(anchor="w")
+            msg = (
+                "이 PC에서 git이 인식됩니다. ‘🔗 Git URL/경로’에 저장소 URL을 입력하면\n"
+                "임시로 클론(`git clone --depth 1`)해 분석하고 끝나면 자동 정리합니다.\n\n"
+                "● 폴더·파일 분석은 git과 무관하게 동작합니다.\n"
+                "● 사내 GitHub(Enterprise)도 git 접근이 되면 동일하게 동작합니다."
+            )
+        else:
+            ttk.Label(top, text="Git이 설치되어 있지 않습니다", font=self.f_h3,
+                      foreground=_C_WARN).pack(anchor="w")
+            msg = (
+                "Git 저장소 URL을 입력해 분석하려면 실행 PC에 git이 필요합니다.\n"
+                "(폴더·파일 분석은 git 없이도 정상 동작합니다.)\n\n"
+                "● 설치 방법 (Windows)\n"
+                "   - 인터넷 가능: https://git-scm.com/download/win 에서 설치\n"
+                "     또는 명령창에서  winget install Git.Git\n"
+                "   - 폐쇄망: 위 설치본(.exe)을 인터넷 PC에서 받아 사내 반입 후 설치\n\n"
+                "● 설치 후 이 프로그램을 다시 실행하거나 ‘다시 확인’을 누르면 인식됩니다."
+            )
         ttk.Label(top, text=msg, justify="left", foreground="#333",
                   wraplength=520).pack(anchor="w", pady=(8, 12))
 
