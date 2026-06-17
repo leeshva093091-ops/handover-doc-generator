@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import shutil
 import threading
 import tkinter as tk
 from pathlib import Path
@@ -190,6 +191,20 @@ class HandoverApp:
 
     # ---------- 레이아웃 ----------
     def _build(self) -> None:
+        # 상단바: 제목(좌) + Git 사용 가능 상태/도움말(우)
+        topbar = ttk.Frame(self.root, padding=(12, 8, 12, 0))
+        topbar.pack(fill="x")
+        ttk.Label(topbar, text="📄 인수인계 문서 생성기", font=self.f_h2).pack(side="left")
+        self.git_help_btn = tk.Button(topbar, text="?", command=self._show_git_help,
+                                      font=("Segoe UI", 9, "bold"), width=2,
+                                      relief="solid", bd=1, bg="#fff", fg=_C_WARN,
+                                      cursor="hand2")
+        self.git_status = tk.Label(topbar, font=("Segoe UI", 9, "bold"), bg=_C_BG,
+                                   cursor="hand2")
+        self.git_status.pack(side="right")
+        self.git_status.bind("<Button-1>", lambda _e: self._refresh_git_status())
+        self._refresh_git_status()
+
         # 프로젝트 추가 영역 — 찾아보기(폴더/파일) 또는 Git URL 입력
         src_frame = ttk.LabelFrame(self.root, text=" 프로젝트 추가 ", padding=8)
         src_frame.pack(fill="x", padx=12, pady=(12, 4))
@@ -309,6 +324,53 @@ class HandoverApp:
         self.del_btn.config(state="normal" if self.queue_list.curselection() else "disabled")
         if not self._analyzing:
             self.analyze_btn.config(state="normal" if (qcount or has_text) else "disabled")
+
+    # ---------- Git 상태 ----------
+    def _refresh_git_status(self) -> None:
+        """git 사용 가능 여부를 점검해 상단 상태칩과 도움말 버튼을 갱신한다."""
+        available = shutil.which("git") is not None
+        if available:
+            self.git_status.config(text="● Git 사용 가능", fg=_C_OK)
+            self.git_help_btn.pack_forget()
+        else:
+            self.git_status.config(text="● Git 없음 (URL 분석 불가)", fg=_C_WARN)
+            self.git_help_btn.pack(side="right", padx=(0, 6))
+
+    def _show_git_help(self) -> None:
+        """git 설치/연결 안내 팝업."""
+        top = tk.Toplevel(self.root)
+        top.title("Git 설치 / 연결 안내")
+        top.transient(self.root)
+        top.configure(bg=_C_BG, padx=18, pady=16)
+        ttk.Label(top, text="Git이 설치되어 있지 않습니다", font=self.f_h3,
+                  foreground=_C_WARN).pack(anchor="w")
+        msg = (
+            "Git 저장소 URL을 입력해 분석하려면 실행 PC에 git이 필요합니다.\n"
+            "(폴더·파일 분석은 git 없이도 정상 동작합니다.)\n\n"
+            "● 설치 방법 (Windows)\n"
+            "   - 인터넷 가능: https://git-scm.com/download/win 에서 설치\n"
+            "     또는 명령창에서  winget install Git.Git\n"
+            "   - 폐쇄망: 위 설치본(.exe)을 인터넷 PC에서 받아 사내 반입 후 설치\n\n"
+            "● 설치 후\n"
+            "   - 이 프로그램을 다시 실행하거나, 아래 ‘다시 확인’을 누르면 인식됩니다.\n"
+            "   - 사내 GitHub(Enterprise)도 git 접근이 되면 동일하게 동작합니다."
+        )
+        ttk.Label(top, text=msg, justify="left", foreground="#333",
+                  wraplength=520).pack(anchor="w", pady=(8, 12))
+
+        def recheck():
+            self._refresh_git_status()
+            if shutil.which("git"):
+                messagebox.showinfo("확인", "Git이 인식되었습니다. 이제 URL 분석을 사용할 수 있어요.")
+                top.destroy()
+            else:
+                messagebox.showwarning("확인", "아직 git이 인식되지 않습니다. 설치 후 다시 시도하세요.")
+
+        btns = ttk.Frame(top)
+        btns.pack(fill="x")
+        ttk.Button(btns, text="다시 확인", style="Accent.TButton", command=recheck).pack(side="right")
+        ttk.Button(btns, text="닫기", command=top.destroy).pack(side="right", padx=(0, 6))
+        top.grab_set()
 
     # ---------- 큐 관리 ----------
     def _browse_menu(self) -> None:

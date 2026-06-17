@@ -52,27 +52,74 @@ def _sensitive_table(meta) -> list[str]:
     return lines
 
 
+def _bar(value: int, total: int, width: int = 22) -> str:
+    filled = round(width * value / total) if total else 0
+    return "█" * filled + "░" * (width - filled)
+
+
+def _distribution_chart(counts: dict, unit: str, top: int = 8) -> list[str]:
+    """{이름: 수치} 분포를 고정폭 ASCII 막대 차트(코드블록)로 만든다."""
+    total = sum(counts.values())
+    if not total:
+        return ["```", "(데이터 없음)", "```"]
+    items = sorted(counts.items(), key=lambda kv: kv[1], reverse=True)
+    shown, rest = items[:top], items[top:]
+    name_w = max((len(n) for n, _ in shown), default=4)
+    lines = ["```"]
+    for name, val in shown:
+        pct = round(val * 100 / total)
+        lines.append(f"{name.ljust(name_w)}  {_bar(val, total)}  {pct:>3}%  ({val:,}{unit})")
+    if rest:
+        other = sum(v for _, v in rest)
+        pct = round(other * 100 / total)
+        lines.append(f"{'기타'.ljust(name_w)}  {_bar(other, total)}  {pct:>3}%  ({other:,}{unit})")
+    lines.append("```")
+    return lines
+
+
 def _render_project_markdown(meta, diff_md=None, generated_on=None) -> str:
-    """프로젝트(폴더/Git)용 — 이해→준비→실행 흐름으로 구성."""
+    """프로젝트(폴더/Git)용 — 이해→준비→실행 흐름 + 표·차트로 상세 구성."""
     b: list[str] = []
+    primary = meta.languages[0] if meta.languages else None
 
     # 1. 개요
     b.append("## 1. 개요")
-    b.append(f"- **이름**: {meta.name}")
-    b.append(f"- **출처**: `{meta.root}`")
-    b.append(f"- **주요 언어**: {', '.join(meta.languages) if meta.languages else _todo('주요 언어/기술 스택을 적으세요')}")
+    b.append("| 항목 | 내용 |")
+    b.append("|---|---|")
+    b.append(f"| 이름 | {meta.name} |")
+    b.append(f"| 출처 | `{meta.root}` |")
+    b.append(f"| 주요 언어 | {primary or '확인 필요'} |")
+    b.append(f"| 사용 언어 | {', '.join(meta.languages) if meta.languages else '—'} |")
+    b.append(f"| 파일 수 | {len(meta.files)}개 |")
+    b.append(f"| 테스트 | {meta.tests or '감지되지 않음'} |")
+    b.append("")
     if meta.readme_excerpt:
-        b.append("- **목적/설명**:")
-        b.append("")
+        b.append("**목적/설명 (README 발췌)**")
         b.append("```")
         b.append(meta.readme_excerpt)
         b.append("```")
     else:
-        b.append(f"- **목적/설명**: {_todo('이 프로젝트가 무엇을 하는지 1~2줄로 적으세요')}")
+        b.append(f"**목적/설명**: {_todo('이 프로젝트가 무엇을 하는지 1~2줄로 적으세요')}")
     b.append("")
 
-    # 2. 실행 준비
-    b.append("## 2. 실행 준비")
+    # 2. 기술 구성 (차트 + 표)
+    b.append("## 2. 기술 구성")
+    if meta.lang_loc:
+        b.append("**언어별 코드 비중** (주석/빈줄 제외 추정)")
+        b.extend(_distribution_chart(meta.lang_loc, "줄"))
+    else:
+        b.append("**언어별 코드 비중**: 감지된 코드 줄 없음")
+    b.append("")
+    if meta.ext_counts:
+        b.append("**파일 형식 분포** (상위)")
+        b.append("| 확장자 | 파일 수 |")
+        b.append("|---|---|")
+        for ext, cnt in sorted(meta.ext_counts.items(), key=lambda kv: kv[1], reverse=True)[:10]:
+            b.append(f"| `{ext}` | {cnt} |")
+    b.append("")
+
+    # 3. 실행 준비
+    b.append("## 3. 실행 준비")
     b.append("### 준비사항(Prerequisites)")
     if meta.prerequisites:
         b.extend(f"- {p}" for p in meta.prerequisites)
@@ -81,38 +128,57 @@ def _render_project_markdown(meta, diff_md=None, generated_on=None) -> str:
     b.append("")
     b.append("### 의존성")
     if meta.dependencies:
+        b.append("| 의존성 파일 | 항목 수 | 주요 항목 |")
+        b.append("|---|---|---|")
         for g in meta.dependencies:
-            b.append(f"- **{g.source}**")
-            b.extend(f"  - {item}" for item in g.items)
+            sample = ", ".join(g.items[:5]) + (" …" if len(g.items) > 5 else "")
+            b.append(f"| `{g.source}` | {len(g.items)} | {sample or '—'} |")
     else:
         b.append(f"- {_NA} (알려진 의존성 파일 없음 — 사용한다면 직접 추가)")
     b.append("")
 
-    # 3. 환경 설정
-    b.append("## 3. 환경 설정")
+    # 4. 환경 설정
+    b.append("## 4. 환경 설정")
+    b.append("| 항목 | 값 |")
+    b.append("|---|---|")
     if meta.env_vars:
-        b.append("- **환경변수** (실행 전 값 설정 필요):")
-        b.extend(f"  - `{n}` = {_TODO}" for n in meta.env_vars)
+        for n in meta.env_vars:
+            b.append(f"| 환경변수 `{n}` | {_TODO} |")
     else:
-        b.append(f"- **환경변수**: {_NA} (코드에서 감지된 항목 없음)")
-    b.append(f"- **포트**: {', '.join(meta.ports) if meta.ports else _NA}")
+        b.append(f"| 환경변수 | {_NA} (코드에서 감지된 항목 없음) |")
+    b.append(f"| 포트 | {', '.join(meta.ports) if meta.ports else _NA} |")
     b.append("")
 
-    # 4. 실행 방법
-    b.append("## 4. 실행 방법")
+    # 5. 실행 방법
+    b.append("## 5. 실행 방법")
     if meta.run_entries:
-        b.extend(f"- **[{e.kind}]** {e.detail}" for e in meta.run_entries)
+        b.append("| 종류 | 방법 |")
+        b.append("|---|---|")
+        for e in meta.run_entries:
+            b.append(f"| {e.kind} | {e.detail} |")
     else:
         b.append(f"- {_todo('빌드/실행 명령을 적으세요 (예: `python main.py`, `docker compose up`)')}")
     b.append("")
 
-    # 5. 동작 확인 (자동 감지 불가 → 항상 직접 작성)
-    b.append("## 5. 동작 확인")
+    # 6. 동작 확인 (자동 감지 불가 → 항상 직접 작성)
+    b.append("## 6. 동작 확인")
     b.append(f"- {_todo('정상 동작 확인 방법을 적으세요 (예: 헬스체크 URL, 테스트 명령, 기대 출력)')}")
     b.append("")
 
-    # 6. 주의사항
-    b.append("## 6. 주의사항")
+    # 7. 주요 파일·구성
+    b.append("## 7. 주요 파일·구성")
+    if meta.key_files:
+        b.append("| 파일 | 역할(추정) |")
+        b.append("|---|---|")
+        for kf in meta.key_files:
+            name, _, role = kf.partition(" — ")
+            b.append(f"| `{name}` | {role or '—'} |")
+    else:
+        b.append(f"- {_NA} (Docker/CI/설정 등 알려진 구성 파일을 찾지 못함)")
+    b.append("")
+
+    # 8. 주의사항
+    b.append("## 8. 주의사항")
     if meta.sensitive:
         b.append("**⚠️ 민감정보 의심 (공유 전 확인):**")
         b.extend(_sensitive_table(meta))
@@ -123,8 +189,8 @@ def _render_project_markdown(meta, diff_md=None, generated_on=None) -> str:
         b.append(f"- {_NA} (자동 분석에서 특이사항 없음 — 직접 검토 권장)")
     b.append("")
 
-    # 7. 디렉터리 구조
-    b.append("## 7. 디렉터리 구조")
+    # 9. 디렉터리 구조
+    b.append("## 9. 디렉터리 구조")
     b.append(f"- 분석 대상 파일: 총 {len(meta.files)}개")
     b.append("")
     b.append("```")

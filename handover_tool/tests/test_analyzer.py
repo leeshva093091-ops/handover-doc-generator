@@ -69,10 +69,17 @@ class AnalyzeSampleTest(unittest.TestCase):
 
     def test_render_has_fixed_sections(self):
         doc = render_markdown(self.meta)
-        for heading in ("## 1. 개요", "## 2. 실행 준비", "## 3. 환경 설정",
-                        "## 4. 실행 방법", "## 5. 동작 확인", "## 6. 주의사항",
-                        "## 7. 디렉터리 구조"):
+        for heading in ("## 1. 개요", "## 2. 기술 구성", "## 3. 실행 준비",
+                        "## 4. 환경 설정", "## 5. 실행 방법", "## 6. 동작 확인",
+                        "## 7. 주요 파일·구성", "## 8. 주의사항", "## 9. 디렉터리 구조"):
             self.assertIn(heading, doc)
+
+    def test_rich_content_chart_and_tables(self):
+        doc = render_markdown(self.meta)
+        self.assertIn("언어별 코드 비중", doc)
+        self.assertIn("█", doc)               # ASCII 막대 차트
+        self.assertIn("파일 형식 분포", doc)
+        self.assertIn("| 의존성 파일 | 항목 수 | 주요 항목 |", doc)
 
     def test_tristate_markers(self):
         doc = render_markdown(self.meta)

@@ -186,15 +186,15 @@ _MAX_SCAN_BYTES = 1_000_000  # 너무 큰 파일은 성능상 건너뜀
 
 def scan_text_files(
     root: Path, files: list[Path]
-) -> tuple[list[str], list[str], list[SensitiveFinding]]:
-    """텍스트 파일을 한 번씩만 읽어 포트·환경변수·민감정보를 함께 추출한다.
+) -> tuple[list[str], list[str], list[SensitiveFinding], dict]:
+    """텍스트 파일을 한 번씩만 읽어 포트·환경변수·민감정보·언어별 LOC를 함께 추출한다.
 
-    파일을 여러 번 여는 비용을 줄이려고 단일 루프로 묶었다.
-    반환: (정렬된 포트, 정렬된 환경변수 이름, 민감정보 의심 항목 목록)
+    반환: (정렬된 포트, 정렬된 환경변수, 민감정보 목록, 언어→코드줄수 dict)
     """
     ports: set[str] = set()
     env_vars: set[str] = set()
     sensitive: list[SensitiveFinding] = []
+    lang_loc: dict[str, int] = {}
 
     for f in files:
         if f.suffix.lower() not in SCANNABLE_EXTS:
@@ -216,7 +216,72 @@ def scan_text_files(
         env_vars |= secrets.find_env_vars(text)
         sensitive.extend(secrets.scan_text(relpath, text))
 
-    return sorted(ports, key=int), sorted(env_vars), sensitive
+        lang = LANGUAGE_BY_EXT.get(f.suffix.lower())
+        if lang:
+            loc = sum(1 for line in text.splitlines() if line.strip())
+            lang_loc[lang] = lang_loc.get(lang, 0) + loc
+
+    return sorted(ports, key=int), sorted(env_vars), sensitive, lang_loc
+
+
+# 주요 구성 파일 → 역할 (인계 시 한눈에 파악). 경로 끝/이름으로 매칭.
+_KEY_FILE_ROLES = [
+    ("dockerfile", "컨테이너 이미지 빌드"),
+    ("docker-compose.yml", "다중 컨테이너 실행"),
+    ("docker-compose.yaml", "다중 컨테이너 실행"),
+    ("compose.yml", "다중 컨테이너 실행"),
+    (".env.example", "환경변수 예시(템플릿)"),
+    (".env", "환경변수 정의"),
+    ("makefile", "빌드/실행 단축 명령"),
+    (".gitlab-ci.yml", "CI 파이프라인(GitLab)"),
+    ("jenkinsfile", "CI 파이프라인(Jenkins)"),
+    ("requirements.txt", "Python 의존성"),
+    ("pyproject.toml", "Python 프로젝트/의존성"),
+    ("package.json", "Node 의존성/스크립트"),
+    ("pom.xml", "Maven 의존성"),
+    ("build.gradle", "Gradle 의존성"),
+    ("go.mod", "Go 모듈"),
+    ("cargo.toml", "Rust 패키지"),
+    ("gemfile", "Ruby 의존성"),
+    ("setup.py", "Python 패키지 설정"),
+    ("tsconfig.json", "TypeScript 설정"),
+    ("license", "라이선스"),
+    (".gitignore", "git 제외 목록"),
+]
+
+# 테스트 파일 패턴 (basename 기준).
+_TEST_HINTS = ("test_", "_test.", ".test.", ".spec.", "test.")
+
+
+def derive_key_files(rel_files: list[str]) -> list[str]:
+    """주요 구성/인프라 파일을 역할과 함께 추려낸다."""
+    found: list[str] = []
+    seen: set[str] = set()
+    lowers = [(rf, rf.lower()) for rf in rel_files]
+    # GitHub Actions 워크플로
+    if any("/.github/workflows/" in ("/" + low) or low.startswith(".github/workflows/")
+           for _, low in lowers):
+        found.append(".github/workflows/* — CI 파이프라인(GitHub Actions)")
+    for name, role in _KEY_FILE_ROLES:
+        for rf, low in lowers:
+            base = low.rsplit("/", 1)[-1]
+            if base == name and role not in seen:
+                found.append(f"{rf} — {role}")
+                seen.add(role)
+                break
+    return found
+
+
+def detect_tests(rel_files: list[str]) -> str:
+    """테스트 디렉터리/파일 존재 여부를 요약한다."""
+    test_files = [
+        rf for rf in rel_files
+        if any(seg in ("test", "tests") for seg in rf.lower().split("/")[:-1])
+        or any(h in rf.lower().rsplit("/", 1)[-1] for h in _TEST_HINTS)
+    ]
+    if not test_files:
+        return ""
+    return f"테스트 파일/디렉터리 {len(test_files)}개 감지 (예: {', '.join(test_files[:3])})"
 
 
 def build_tree(root: Path, display_name: str | None = None, max_depth: int = 2) -> str:
@@ -361,7 +426,14 @@ def analyze_project(
     readme_path, readme_excerpt = find_readme(root)
     dependencies, dep_notes = parse_dependencies(root)
     run_entries = find_run_entries(root, files)
-    ports, env_vars, sensitive = scan_text_files(root, files)
+    ports, env_vars, sensitive, lang_loc = scan_text_files(root, files)
+
+    # 확장자 분포 (파일 수 기준).
+    ext_counts: dict[str, int] = {}
+    for rf in rel_files:
+        base = rf.rsplit("/", 1)[-1]
+        ext = "." + base.rsplit(".", 1)[1].lower() if "." in base else "(확장자 없음)"
+        ext_counts[ext] = ext_counts.get(ext, 0) + 1
 
     meta = ProjectMetadata(
         name=name,
@@ -373,6 +445,10 @@ def analyze_project(
         run_entries=run_entries,
         ports=ports,
         files=rel_files,
+        ext_counts=ext_counts,
+        lang_loc=lang_loc,
+        key_files=derive_key_files(rel_files),
+        tests=detect_tests(rel_files),
         env_vars=env_vars,
         sensitive=sensitive,
         tree=build_tree(root, display_name=name),

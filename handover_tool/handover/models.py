@@ -74,6 +74,10 @@ class ProjectMetadata:
     prerequisites: list[str] = field(default_factory=list)  # 실행 전 준비/환경 (도출값)
     ports: list[str] = field(default_factory=list)
     files: list[str] = field(default_factory=list)  # 분석 대상 파일(상대경로, 잡음 디렉터리 제외)
+    ext_counts: dict = field(default_factory=dict)   # 확장자 → 파일 수 (분포 차트용)
+    lang_loc: dict = field(default_factory=dict)     # 언어 → 코드 줄 수 (분포 차트용)
+    key_files: list[str] = field(default_factory=list)  # "파일 — 역할" 주요 구성 파일
+    tests: str = ""                                  # 테스트 구성 감지 결과
     env_vars: list[str] = field(default_factory=list)  # 실행에 필요한 환경변수 이름
     sensitive: list[SensitiveFinding] = field(default_factory=list)  # 민감정보 의심 항목
     tree: str = ""
