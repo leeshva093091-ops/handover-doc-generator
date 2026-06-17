@@ -18,7 +18,7 @@ from pathlib import Path
 from tkinter import font as tkfont
 from tkinter import filedialog, messagebox, ttk
 
-from . import __version__, export, source
+from . import __version__, export, snapshot, source
 from .service import generate_document
 
 _C_BG = "#f7f8fa"
@@ -527,6 +527,11 @@ class HandoverApp:
                          bg=_C_OK, fg="white", activebackground="#15692d", activeforeground="white",
                          font=("Segoe UI", 10, "bold"), relief="flat", padx=14, pady=5, cursor="hand2")
         save.pack(side="right")
+        snap = tk.Button(header, text="📸  스냅샷/비교", command=lambda: self._snapshot_menu(tab_id),
+                         bg="#eef1f6", fg="#333", activebackground="#e0e6ef",
+                         font=("Segoe UI", 10, "bold"), relief="flat", bd=0,
+                         padx=12, pady=5, cursor="hand2")
+        snap.pack(side="right", padx=(0, 6))
 
         sub = ttk.Notebook(outer)
         sub.pack(fill="both", expand=True, pady=(8, 0))
@@ -561,7 +566,7 @@ class HandoverApp:
         dot = "🔴" if n_sens else "🟢"
         self.results_nb.add(outer, text=f"  {dot} {label}  ")
         self._results[tab_id] = {
-            "doc": doc, "name": meta.name, "widget": doc_widget,
+            "doc": doc, "name": meta.name, "meta": meta, "widget": doc_widget,
             "sub": sub, "tab_doc": tab_doc, "edit_btn": edit_btn,
             "todo_label": todo_label, "editing": False, "edited": set(),
             # 초기화용: 원본 '직접 작성 필요' 줄을 줄번호별로 보관
@@ -646,6 +651,68 @@ class HandoverApp:
         rec = self._results.get(tab_id)
         if rec:
             self._save_doc(rec["doc"], rec["name"])
+
+    # ---------- 재분석 diff (스냅샷) ----------
+    def _snapshot_menu(self, tab_id: str) -> None:
+        """스냅샷 저장 / 이전 스냅샷과 비교 메뉴."""
+        rec = self._results.get(tab_id)
+        if not rec:
+            return
+        menu = tk.Menu(self.root, tearoff=0)
+        menu.add_command(label="📸 현재 분석을 스냅샷으로 저장…",
+                         command=lambda: self._save_snapshot(tab_id))
+        menu.add_command(label="🔍 저장된 스냅샷과 비교 (변경 사항 추가)…",
+                         command=lambda: self._compare_snapshot(tab_id))
+        try:
+            menu.tk_popup(self.root.winfo_pointerx(), self.root.winfo_pointery())
+        finally:
+            menu.grab_release()
+
+    def _save_snapshot(self, tab_id: str) -> None:
+        rec = self._results.get(tab_id)
+        if not rec:
+            return
+        path = filedialog.asksaveasfilename(
+            title="분석 스냅샷 저장", defaultextension=".json",
+            initialfile=f"{rec['name']}.snapshot.json",
+            filetypes=[("스냅샷(JSON)", "*.json"), ("모든 파일", "*.*")])
+        if not path:
+            return
+        try:
+            snapshot.save(Path(path), snapshot.to_snapshot(rec["meta"]))
+            self.status.config(text=f"스냅샷 저장됨: {path}")
+        except OSError as exc:
+            messagebox.showerror("저장 실패", str(exc))
+
+    def _compare_snapshot(self, tab_id: str) -> None:
+        rec = self._results.get(tab_id)
+        if not rec:
+            return
+        path = filedialog.askopenfilename(
+            title="비교할 이전 스냅샷 선택",
+            filetypes=[("스냅샷(JSON)", "*.json"), ("모든 파일", "*.*")])
+        if not path:
+            return
+        try:
+            prev = snapshot.load(Path(path))
+        except ValueError as exc:
+            messagebox.showerror("비교 실패", str(exc))
+            return
+        if prev is None:
+            messagebox.showwarning("비교", "스냅샷 파일을 찾을 수 없습니다.")
+            return
+        d = snapshot.diff(prev, snapshot.to_snapshot(rec["meta"]))
+        diff_md = snapshot.render_diff_md(d)
+        # 기존 문서 끝에 '변경 사항' 섹션을 갱신/추가 (편집 내용 보존).
+        marker = "## 변경 사항 (이전 분석 대비)"
+        base = rec["doc"].split(marker)[0].rstrip()
+        rec["doc"] = f"{base}\n\n{marker}\n{diff_md}\n"
+        self._render_doc(rec["widget"], rec["doc"])
+        rec["sub"].select(rec["tab_doc"])
+        msg = "변경 사항을 문서에 추가했습니다."
+        if d.has_new_sensitive():
+            msg += " ⚠️ 새 민감정보 발견!"
+        self.status.config(text=msg)
 
     def _save_doc(self, doc: str, name: str) -> None:
         path = filedialog.asksaveasfilename(
