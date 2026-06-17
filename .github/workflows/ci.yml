@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write  # 태그 빌드 시 릴리스에 exe 첨부
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.9', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Run tests (표준 라이브러리만, 추가 설치 불필요)
+        working-directory: handover_tool
+        run: python -m unittest discover -s tests -v
+
+  build-windows-exe:
+    # 버전 태그(v*) 푸시 시에만 exe 빌드 후 릴리스에 첨부
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install PyInstaller (빌드 전용)
+        run: pip install pyinstaller
+      - name: Build handover-gui.exe
+        working-directory: handover_tool
+        run: python -m PyInstaller --onefile --windowed --name handover-gui --clean --noconfirm handover_gui.py
+      - name: Attach exe to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: handover_tool/dist/handover-gui.exe
