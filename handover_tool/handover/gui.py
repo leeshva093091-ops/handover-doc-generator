@@ -412,7 +412,7 @@ class HandoverApp:
         tab_id = str(outer)
         n_sens = len(meta.sensitive)
 
-        # 탭 상단 헤더: (좌) 민감정보 상태 + 직접작성 잔여 / (우) 수정·저장 버튼
+        # 탭 상단 헤더: (좌) 민감정보 상태 + 직접작성 잔여(클릭 이동) / (우) 저장
         header = tk.Frame(outer, bg=_C_BG)
         header.pack(fill="x", padx=8, pady=(8, 0))
         if n_sens:
@@ -423,16 +423,12 @@ class HandoverApp:
                      text="✓ 민감정보 없음").pack(side="left")
         todo_label = tk.Label(header, bg=_C_BG, font=self.f_label)
         todo_label.pack(side="left")
+        todo_label.bind("<Button-1>", lambda _e: self._jump_to_todo(tab_id))
 
         save = tk.Button(header, text="💾  이 결과 저장", command=lambda: self._save_tab(tab_id),
                          bg=_C_OK, fg="white", activebackground="#15692d", activeforeground="white",
-                         font=("Segoe UI", 10, "bold"), relief="flat", padx=14, pady=4, cursor="hand2")
+                         font=("Segoe UI", 10, "bold"), relief="flat", padx=14, pady=5, cursor="hand2")
         save.pack(side="right")
-        edit_btn = tk.Button(header, text="✏  수정", command=lambda: self._toggle_edit(tab_id),
-                             bg="white", fg=_C_ACCENT, activeforeground=_C_ACCENT,
-                             font=("Segoe UI", 10, "bold"), relief="solid", bd=1,
-                             padx=12, pady=4, cursor="hand2")
-        edit_btn.pack(side="right", padx=(0, 6))
 
         sub = ttk.Notebook(outer)
         sub.pack(fill="both", expand=True, pady=(8, 0))
@@ -445,7 +441,21 @@ class HandoverApp:
         sub.add(tab_doc, text="  문서  ")
         self._build_summary(tab_summary, meta)
         self._build_files(tab_files, meta)
-        doc_widget = self._make_doc_widget(tab_doc)
+
+        # 문서 탭: 안쪽 상단에 수정 버튼(예쁜 색) + 그 아래 문서 뷰
+        doc_bar = tk.Frame(tab_doc, bg=_C_BG)
+        doc_bar.pack(fill="x", padx=8, pady=(8, 2))
+        tk.Label(doc_bar, bg=_C_BG, fg="#888", font=("Segoe UI", 9),
+                 text="문서를 직접 다듬을 수 있어요").pack(side="left")
+        edit_btn = tk.Button(doc_bar, text="✏  문서 직접 수정",
+                             command=lambda: self._toggle_edit(tab_id),
+                             bg="#eaf1ff", fg=_C_ACCENT, activebackground="#d8e6ff",
+                             activeforeground=_C_ACCENT, font=("Segoe UI", 10, "bold"),
+                             relief="flat", bd=0, padx=14, pady=5, cursor="hand2")
+        edit_btn.pack(side="right")
+        doc_host = ttk.Frame(tab_doc)
+        doc_host.pack(fill="both", expand=True)
+        doc_widget = self._make_doc_widget(doc_host)
         self._render_doc(doc_widget, doc)
 
         # 민감정보 유무를 탭에서 색(빨강/초록 점)으로 구분
@@ -466,9 +476,30 @@ class HandoverApp:
         rec = self._results[tab_id]
         n = self._todo_count(rec["doc"])
         if n:
-            rec["todo_label"].config(text=f"    ✍ 직접 작성 필요 {n}곳", fg="#a15c00")
+            rec["todo_label"].config(text=f"    ✍ 직접 작성 필요 {n}곳 (클릭해 이동)",
+                                     fg="#a15c00", cursor="hand2")
         else:
-            rec["todo_label"].config(text="    ✓ 빈 항목 없음", fg=_C_OK)
+            rec["todo_label"].config(text="    ✓ 빈 항목 없음", fg=_C_OK, cursor="")
+
+    def _jump_to_todo(self, tab_id: str) -> None:
+        """직접작성 표시 클릭 시 문서에서 다음 '직접 작성' 위치로 스크롤·강조한다."""
+        rec = self._results.get(tab_id)
+        if not rec:
+            return
+        rec["sub"].select(rec["tab_doc"])  # 문서 탭으로 전환
+        w = rec["widget"]
+        start = rec.get("todo_pos", "1.0")
+        pos = w.search("직접 작성", start, stopindex="end")
+        if not pos:  # 끝까지 갔으면 처음부터 다시 (순환)
+            pos = w.search("직접 작성", "1.0", stopindex="end")
+        if not pos:
+            self.status.config(text="직접 작성이 필요한 위치가 없습니다.")
+            return
+        w.see(pos)
+        w.tag_remove("jump", "1.0", "end")
+        w.tag_add("jump", f"{pos} linestart", f"{pos} lineend")
+        rec["todo_pos"] = f"{pos}+1c"  # 다음 클릭은 그 다음 항목으로
+        self.status.config(text="직접 작성이 필요한 위치로 이동했습니다. (다시 클릭하면 다음 위치)")
 
     def _toggle_edit(self, tab_id: str) -> None:
         """문서 탭을 읽기/편집 모드로 토글한다."""
@@ -487,7 +518,8 @@ class HandoverApp:
             w.delete("1.0", "end")
             w.insert("1.0", rec["doc"])
             w.focus_set()
-            rec["edit_btn"].config(text="✓  수정 완료", fg="white", bg=_C_ACCENT)
+            rec["edit_btn"].config(text="✓  수정 완료", fg="white", bg=_C_ACCENT,
+                                   activebackground="#2559c4", activeforeground="white")
             self.status.config(text="편집 모드 — Markdown을 직접 수정한 뒤 ‘수정 완료’를 누르세요.")
         else:
             # 읽기 모드 복귀: 변경분 반영 + 다시 렌더
@@ -495,7 +527,8 @@ class HandoverApp:
             rec["doc"] = w.get("1.0", "end-1c")
             w.config(bg=_C_CARD)
             self._render_doc(w, rec["doc"])
-            rec["edit_btn"].config(text="✏  수정", fg=_C_ACCENT, bg="white")
+            rec["edit_btn"].config(text="✏  문서 직접 수정", fg=_C_ACCENT, bg="#eaf1ff",
+                                   activebackground="#d8e6ff", activeforeground=_C_ACCENT)
             self._update_todo_label(tab_id)
             self.status.config(text="문서를 수정했습니다. ‘이 결과 저장’으로 내보내세요.")
 
@@ -748,6 +781,8 @@ class HandoverApp:
         w.tag_configure("bullet", font=self.f_body, lmargin1=18, lmargin2=30)
         # 직접 작성/확인 필요 강조 (노란 배경)
         w.tag_configure("todo", background="#fff3bf", foreground="#7a5d00")
+        # 클릭 이동 시 해당 줄 강조
+        w.tag_configure("jump", background="#ffe08a")
         return w
 
     def _render_doc(self, w: tk.Text, md: str) -> None:
