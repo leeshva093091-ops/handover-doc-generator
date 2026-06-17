@@ -1,6 +1,6 @@
 # 인수인계 문서 자동 생성기 (GUI)
 
-![version](https://img.shields.io/badge/version-0.3.0-blue.svg)
+![version](https://img.shields.io/badge/version-0.4.0-blue.svg)
 ![python](https://img.shields.io/badge/python-3.9%2B-blue.svg)
 ![dependencies](https://img.shields.io/badge/dependencies-none%20(stdlib)-brightgreen.svg)
 ![platform](https://img.shields.io/badge/platform-Windows-lightgrey.svg)
